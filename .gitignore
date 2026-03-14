@@ -1,0 +1,6 @@
+node_modules/
+astra.db
+database.sqlite
+uploads/
+.env
+*.log
