@@ -87,17 +87,6 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', server: 'ASTRA Backend', version: '1.0.0', time: new Date().toISOString() });
 });
 
-// Database check
-app.get('/api/db-check', async (req, res) => {
-    try {
-        const db = await getDb();
-        const result = await queryAll('SELECT NOW()');
-        res.json({ status: 'ok', database: 'connected', time: result[0].now });
-    } catch (err) {
-        res.status(500).json({ status: 'error', error: err.message, stack: err.stack });
-    }
-});
-
 // 404 handler — catch unmatched routes
 app.use((req, res) => {
     res.status(404).json({ error: 'Endpoint not found' });

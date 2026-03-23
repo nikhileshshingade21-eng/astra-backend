@@ -9,14 +9,6 @@ if (!connectionStr && process.env.DB_HOST && process.env.DB_USER) {
     connectionStr = `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME}`;
 }
 
-// Log connection attempt (Masking password for security)
-const maskedStr = connectionStr ? connectionStr.replace(/:([^:@]+)@/, ':****@') : 'NONE';
-console.log(`[DB] Initializing connection to: ${maskedStr}`);
-
-if (connectionStr && connectionStr.includes('undefined')) {
-    console.error('[DB] WARNING: Connection string contains "undefined". Check your environment variables!');
-}
-
 const pool = new Pool({
     connectionString: connectionStr,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
