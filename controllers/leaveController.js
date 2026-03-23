@@ -1,4 +1,4 @@
-const { getDb, queryAll } = require('../db');
+const { getDb, queryAll, saveDb } = require('../database_module.js');
 
 const applyLeave = async (req, res) => {
     try {
@@ -8,11 +8,10 @@ const applyLeave = async (req, res) => {
         }
 
         const db = await getDb();
-        db.run(
-            `INSERT INTO leave_requests (user_id, start_date, end_date, reason) VALUES (?, ?, ?, ?)`,
+        await queryAll(
+            `INSERT INTO leave_requests (user_id, start_date, end_date, reason) VALUES ($1, $2, $3, $4)`,
             [req.user.id, start_date, end_date, reason || null]
         );
-        require('../db').saveDb();
 
         res.json({ success: true, message: 'Leave request submitted' });
     } catch (err) {
@@ -24,25 +23,15 @@ const applyLeave = async (req, res) => {
 const getMyLeaves = async (req, res) => {
     try {
         const db = await getDb();
-        const result = queryAll(
+        const result = await queryAll(
             `SELECT id, start_date, end_date, reason, status, applied_at 
              FROM leave_requests 
-             WHERE user_id = ? 
+             WHERE user_id = $1 
              ORDER BY applied_at DESC`,
             [req.user.id]
         );
 
-        const leaves = [];
-        if (result.length && result[0].values.length) {
-            for (const row of result[0].values) {
-                leaves.push({
-                    id: row[0], start_date: row[1], end_date: row[2],
-                    reason: row[3], status: row[4], applied_at: row[5]
-                });
-            }
-        }
-
-        res.json({ leaves });
+        res.json({ leaves: result });
     } catch (err) {
         console.error('Get leaves error:', err);
         res.status(500).json({ error: 'Failed to fetch leave requests' });
@@ -55,25 +44,15 @@ const getPendingLeaves = async (req, res) => {
             return res.status(403).json({ error: 'Only faculty or admin can view pending leaves' });
         }
         const db = await getDb();
-        const result = queryAll(
-            `SELECT l.id, u.name, u.roll_number, l.start_date, l.end_date, l.reason, l.applied_at 
+        const result = await queryAll(
+            `SELECT l.id, u.name as student_name, u.roll_number, l.start_date, l.end_date, l.reason, l.applied_at 
              FROM leave_requests l
              JOIN users u ON l.user_id = u.id
              WHERE l.status = 'pending'
              ORDER BY l.applied_at ASC`
         );
 
-        const leaves = [];
-        if (result.length && result[0].values.length) {
-            for (const row of result[0].values) {
-                leaves.push({
-                    id: row[0], student_name: row[1], roll_number: row[2],
-                    start_date: row[3], end_date: row[4], reason: row[5], applied_at: row[6]
-                });
-            }
-        }
-
-        res.json({ leaves });
+        res.json({ leaves: result });
     } catch (err) {
         console.error('Get pending leaves error:', err);
         res.status(500).json({ error: 'Failed to fetch pending leaves' });
@@ -94,8 +73,7 @@ const updateLeaveStatus = async (req, res) => {
         }
 
         const db = await getDb();
-        db.run(`UPDATE leave_requests SET status = ? WHERE id = ?`, [status, id]);
-        require('../db').saveDb();
+        await queryAll(`UPDATE leave_requests SET status = $1 WHERE id = $2`, [status, id]);
 
         res.json({ success: true, message: `Leave request ${status}` });
     } catch (err) {

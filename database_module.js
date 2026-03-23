@@ -1,0 +1,59 @@
+const { Pool } = require('pg');
+
+// Initialize PostgreSQL Pool
+// This will normally pick up DATABASE_URL or component env vars
+let connectionStr = process.env.DATABASE_URL;
+
+if (!connectionStr && process.env.DB_HOST && process.env.DB_USER) {
+    // Construct connection string from parts if DATABASE_URL is missing
+    connectionStr = `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME}`;
+}
+
+const pool = new Pool({
+    connectionString: connectionStr,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+// Test connection on boot
+pool.on('connect', () => {
+    // Connection established
+});
+
+pool.on('error', (err) => {
+    console.error('[DB] Unexpected error on idle client', err);
+    process.exit(-1);
+});
+
+async function getDb() {
+    return pool;
+}
+
+// Wrapper to mimic the old SQLite API structure so we don't have to rewrite 100% of queries immediately
+// Note: SQL syntax itself (like ? vs $1) will need updating in the models/controllers
+async function queryAll(sql, params = []) {
+    try {
+        const client = await pool.connect();
+        try {
+            const res = await client.query(sql, params);
+            return res.rows || [];
+        } finally {
+            client.release();
+        }
+    } catch (err) {
+        console.error('[DB] Query Error:', err.message, '\nSQL:', sql, '\nParams:', params);
+        throw err;
+    }
+}
+
+function saveDb() {
+    // No-op for Postgres. Data is immediately persisted.
+}
+
+// Ensure clean shutdown
+process.on('SIGINT', async () => {
+    console.log('[DB] Closing DB pool...');
+    await pool.end();
+    process.exit();
+});
+
+module.exports = { getDb, saveDb, queryAll, pool };

@@ -1,4 +1,6 @@
-const { getDb, saveDb, queryAll } = require('../db');
+const { getDb, queryAll, saveDb } = require('../database_module.js');
+const { reportThreat } = require('../services/threatService');
+const { getOrSetCache } = require('../services/cacheService');
 
 // Haversine formula — calculate distance between two GPS coordinates in meters
 function haversine(lat1, lng1, lat2, lng2) {
@@ -10,29 +12,101 @@ function haversine(lat1, lng1, lat2, lng2) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// VULN-008 FIX: GPS anomaly detection
+async function detectGpsAnomaly(userId, gps_lat, gps_lng) {
+    const warnings = [];
+    const details = {};
+
+    // Check for impossible coordinates (0,0 = Null Island)
+    if (gps_lat === 0 && gps_lng === 0) {
+        warnings.push('Coordinates at Null Island (0,0) — likely spoofed');
+        details.null_island = true;
+    }
+
+    // Check for out-of-range coordinates
+    if (Math.abs(gps_lat) > 90 || Math.abs(gps_lng) > 180) {
+        warnings.push('Coordinates out of valid range');
+    }
+
+    // Check for suspiciously exact coordinates (too many decimal places all zeros)
+    const latStr = String(gps_lat);
+    const lngStr = String(gps_lng);
+    if (latStr.endsWith('000') && lngStr.endsWith('000')) {
+        warnings.push('Suspiciously round coordinates — possible spoofing');
+        details.round_coords = true;
+    }
+
+    // Velocity check: compare with last attendance record
+    const lastRecord = await queryAll(
+        'SELECT gps_lat, gps_lng, marked_at FROM attendance WHERE user_id = $1 AND gps_lat IS NOT NULL ORDER BY marked_at DESC LIMIT 1',
+        [userId]
+    );
+
+    if (lastRecord.length > 0) {
+        const lastRow = lastRecord[0];
+        const { gps_lat: lastLat, gps_lng: lastLng, marked_at: lastTime } = lastRow;
+        if (lastLat && lastLng && lastTime) {
+            const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
+
+            if (timeDiffHours > 0) {
+                const speedKmh = (distMeters / 1000) / timeDiffHours;
+                details.speed_kmh = Math.round(speedKmh);
+                // Flag if traveling faster than 200 km/h (teleportation)
+                if (speedKmh > 200) {
+                    warnings.push(`Impossible travel speed: ${Math.round(speedKmh)} km/h from last known location`);
+                }
+            }
+        }
+    }
+
+    return { warnings, details };
+}
+
 const mark = async (req, res) => {
     try {
         const { class_id, gps_lat, gps_lng } = req.body;
         const db = await getDb();
 
-        if (!gps_lat || !gps_lng) {
+        if (gps_lat === undefined || gps_lat === null || gps_lng === undefined || gps_lng === null) {
             return res.status(400).json({ error: 'GPS coordinates are required' });
         }
 
-        // Check for campus zones
-        const zones = queryAll('SELECT id, name, lat, lng, radius_m FROM campus_zones');
+        // 🛡️ AI THREAT DETECTION: GPS anomaly check
+        const { warnings, details } = await detectGpsAnomaly(req.user.id, gps_lat, gps_lng);
+        if (warnings.length > 0) {
+            console.warn(`[🛡️ GPS ANOMALY] User ${req.user.id}: ${warnings.join('; ')}`);
+            
+            // Report to AI threat engine — this will score, log, and potentially block
+            const threat = await reportThreat('gps_spoof', req.user.id, details, req.ip);
+            
+            // If AI says block or lockdown — STOP the hacker here
+            if (threat.action === 'block' || threat.action === 'lockdown') {
+                return res.status(403).json({
+                    error: '⛔ GPS SPOOFING DETECTED — BLOCKED',
+                    threat_score: threat.threat_score,
+                    severity: threat.severity,
+                    message: threat.reason,
+                    action: 'Your account has been flagged. Admin has been notified.'
+                });
+            }
+        }
+
+        // Check for campus zones (Cached for 1 hour to reduce DB load)
+        const zones = await getOrSetCache('campus_zones_all', 3600, async () => {
+            return await queryAll('SELECT id, name, lat, lng, radius_m FROM campus_zones');
+        });
         let withinZone = false;
         let nearestDistance = Infinity;
         let zoneName = '';
 
-        if (zones.length && zones[0].values.length) {
-            for (const z of zones[0].values) {
-                const dist = haversine(gps_lat, gps_lng, z[2], z[3]);
+        if (zones.length > 0) {
+            for (const z of zones) {
+                const dist = haversine(gps_lat, gps_lng, z.lat, z.lng);
                 if (dist < nearestDistance) {
                     nearestDistance = dist;
-                    zoneName = z[1];
+                    zoneName = z.name;
                 }
-                if (dist <= z[4]) {
+                if (z.radius_m && dist <= z.radius_m) {
                     withinZone = true;
                 }
             }
@@ -54,11 +128,11 @@ const mark = async (req, res) => {
 
         const todayDate = new Date().toISOString().split('T')[0];
         if (class_id) {
-            const existing = queryAll(
-                'SELECT id FROM attendance WHERE user_id = ? AND class_id = ? AND date = ?',
+            const existing = await queryAll(
+                'SELECT id FROM attendance WHERE user_id = $1 AND class_id = $2 AND date = $3',
                 [req.user.id, class_id, todayDate]
             );
-            if (existing.length && existing[0].values.length) {
+            if (existing.length > 0) {
                 return res.status(409).json({ error: 'Attendance already marked for this class today' });
             }
         }
@@ -66,9 +140,9 @@ const mark = async (req, res) => {
         // Determine status and enforce TIME WINDOW (last 10 mins)
         let status = 'present';
         if (class_id) {
-            const cls = queryAll('SELECT start_time, end_time, name FROM classes WHERE id = ?', [class_id]);
-            if (cls.length && cls[0].values.length) {
-                const [classStart, classEnd, className] = cls[0].values[0];
+            const cls = await queryAll('SELECT start_time, end_time, name FROM classes WHERE id = $1', [class_id]);
+            if (cls.length > 0) {
+                const { start_time: classStart, end_time: classEnd, name: className } = cls[0];
                 const now = new Date();
                 
                 // Parse class end time
@@ -92,18 +166,16 @@ const mark = async (req, res) => {
             }
         }
 
-        db.run(
+        await queryAll(
             `INSERT INTO attendance (user_id, class_id, date, status, gps_lat, gps_lng, distance_m, method)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
             [req.user.id, class_id || null, todayDate, status, gps_lat, gps_lng, Math.round(nearestDistance), 'gps+biometric']
         );
 
-        // Create notification
-        db.run(
-            `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, ?)`,
+        await queryAll(
+            `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
             [req.user.id, 'Attendance Marked', `${status === 'present' ? '✓ Present' : '⚠ Late'} — ${todayDate} at ${new Date().toLocaleTimeString()}. Distance: ${Math.round(nearestDistance)}m`, status === 'present' ? 'success' : 'warning']
         );
-        saveDb();
 
         res.json({
             success: true,
@@ -122,29 +194,18 @@ const mark = async (req, res) => {
 const getHistory = async (req, res) => {
     try {
         const db = await getDb();
-        const result = queryAll(
+        const result = await queryAll(
             `SELECT a.id, a.date, a.status, a.gps_lat, a.gps_lng, a.distance_m, a.method, a.marked_at,
               c.code, c.name as class_name
        FROM attendance a
        LEFT JOIN classes c ON a.class_id = c.id
-       WHERE a.user_id = ?
+       WHERE a.user_id = $1
        ORDER BY a.marked_at DESC
        LIMIT 50`,
             [req.user.id]
         );
 
-        const records = [];
-        if (result.length && result[0].values.length) {
-            for (const row of result[0].values) {
-                records.push({
-                    id: row[0], date: row[1], status: row[2], gps_lat: row[3], gps_lng: row[4],
-                    distance_m: row[5], method: row[6], marked_at: row[7],
-                    class_code: row[8], class_name: row[9]
-                });
-            }
-        }
-
-        res.json({ records });
+        res.json({ records: result });
     } catch (err) {
         console.error('History error:', err);
         res.status(500).json({ error: 'Failed to fetch history' });
@@ -158,18 +219,18 @@ const getLiveAttendance = async (req, res) => {
         const today = new Date().toISOString().split('T')[0];
 
         // First find the class to get programme and section
-        const clsRes = queryAll('SELECT programme, section FROM classes WHERE id = ?', [classId]);
-        if (!clsRes.length || !clsRes[0].values.length) {
+        const clsRes = await queryAll('SELECT programme, section FROM classes WHERE id = $1', [classId]);
+        if (clsRes.length === 0) {
             return res.status(404).json({ error: 'Class not found' });
         }
-        const [prog, sec] = clsRes[0].values[0];
+        const { programme: prog, section: sec } = clsRes[0];
 
         // Fetch all students in this section and their attendance for today if it exists
-        const result = queryAll(`
+        const result = await queryAll(`
             SELECT u.id, u.roll_number, u.name, a.status, a.marked_at
             FROM users u
-            LEFT JOIN attendance a ON u.id = a.user_id AND a.class_id = ? AND a.date = ?
-            WHERE u.role = 'student' AND u.programme = ? AND u.section = ?
+            LEFT JOIN attendance a ON u.id = a.user_id AND a.class_id = $1 AND a.date = $2
+            WHERE u.role = 'student' AND u.programme = $3 AND u.section = $4
             ORDER BY u.roll_number ASC
         `, [classId, today, prog, sec]);
 
@@ -206,33 +267,33 @@ const manualMark = async (req, res) => {
         }
 
         const { user_id, class_id, status } = req.body;
-        if (!user_id || !class_id || !status) {
-            return res.status(400).json({ error: 'User ID, Class ID, and Status are required' });
+        // SEC-007 FIX: Validate status against allowed values
+        const validStatuses = ['present', 'absent', 'late'];
+        if (!user_id || !class_id || !status || !validStatuses.includes(status)) {
+            return res.status(400).json({ error: 'Valid User ID, Class ID, and Status (present/absent/late) are required' });
         }
 
         const db = await getDb();
         const todayDate = new Date().toISOString().split('T')[0];
 
         // Upsert attendance record
-        const existing = queryAll(
-            'SELECT id FROM attendance WHERE user_id = ? AND class_id = ? AND date = ?',
+        const existing = await queryAll(
+            'SELECT id FROM attendance WHERE user_id = $1 AND class_id = $2 AND date = $3',
             [user_id, class_id, todayDate]
         );
 
-        if (existing.length && existing[0].values.length) {
-            db.run(
-                'UPDATE attendance SET status = ?, marked_at = datetime("now"), method = "faculty_override" WHERE id = ?',
-                [status, existing[0].values[0][0]]
+        if (existing.length > 0) {
+            await queryAll(
+                'UPDATE attendance SET status = $1, marked_at = NOW(), method = $2 WHERE id = $3',
+                [status, 'faculty_override', existing[0].id]
             );
         } else {
-            db.run(
+            await queryAll(
                 `INSERT INTO attendance (user_id, class_id, date, status, method, marked_at)
-                 VALUES (?, ?, ?, ?, ?, datetime("now"))`,
+                 VALUES ($1, $2, $3, $4, $5, NOW())`,
                 [user_id, class_id, todayDate, status, 'faculty_override']
             );
         }
-        
-        saveDb();
 
         res.json({ success: true, message: `Attendance for student updated to ${status}` });
     } catch (err) {

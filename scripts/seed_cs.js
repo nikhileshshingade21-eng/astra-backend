@@ -72,10 +72,12 @@ async function run() {
 
     for (const st of studentsArr) {
         if (st.section === 'CS') {
+            const bcrypt = require('bcryptjs');
+            const hash123 = bcrypt.hashSync('123', 10);
             db.run(
-                `INSERT OR IGNORE INTO users (roll_number, name, programme, section, role, password_hash)
-                 VALUES (?, ?, ?, ?, 'student', '123')`,
-                [st.id, st.name, st.prog, st.section]
+                `INSERT INTO users (roll_number, name, programme, section, role, password_hash)
+                 VALUES (?, ?, ?, ?, 'student', ?) ON CONFLICT (roll_number) DO NOTHING`,
+                [st.id, st.name, st.prog, st.section, hash123]
             );
         }
     }

@@ -1,4 +1,5 @@
-const { getDb, queryAll } = require('../db');
+const { getDb, queryAll, saveDb } = require('../database_module.js');
+const aiService = require('../services/aiService');
 
 const getDashboardStats = async (req, res) => {
     try {
@@ -6,25 +7,25 @@ const getDashboardStats = async (req, res) => {
         const userId = req.user.id;
 
         // Total attendance records
-        const totalResult = queryAll('SELECT COUNT(*) FROM attendance WHERE user_id = ?', [userId]);
-        const totalAttended = totalResult.length ? totalResult[0].values[0][0] : 0;
+        const totalResult = await queryAll('SELECT COUNT(*) as count FROM attendance WHERE user_id = $1', [userId]);
+        const totalAttended = totalResult.length ? parseInt(totalResult[0].count) : 0;
 
         // Present count
-        const presentResult = queryAll("SELECT COUNT(*) FROM attendance WHERE user_id = ? AND status = 'present'", [userId]);
-        const presentCount = presentResult.length ? presentResult[0].values[0][0] : 0;
+        const presentResult = await queryAll("SELECT COUNT(*) as count FROM attendance WHERE user_id = $1 AND status = 'present'", [userId]);
+        const presentCount = presentResult.length ? parseInt(presentResult[0].count) : 0;
 
         // Late count
-        const lateResult = queryAll("SELECT COUNT(*) FROM attendance WHERE user_id = ? AND status = 'late'", [userId]);
-        const lateCount = lateResult.length ? lateResult[0].values[0][0] : 0;
+        const lateResult = await queryAll("SELECT COUNT(*) as count FROM attendance WHERE user_id = $1 AND status = 'late'", [userId]);
+        const lateCount = lateResult.length ? parseInt(lateResult[0].count) : 0;
 
         // Total classes available (for the user's programme/section)
         let totalClasses = 0;
         if (req.user.programme && req.user.section) {
-            const classResult = queryAll(
-                'SELECT COUNT(*) FROM classes WHERE programme = ? AND section = ?',
+            const classResult = await queryAll(
+                'SELECT COUNT(*) as count FROM classes WHERE programme = $1 AND section = $2',
                 [req.user.programme, req.user.section]
             );
-            totalClasses = classResult.length ? classResult[0].values[0][0] : 0;
+            totalClasses = classResult.length ? parseInt(classResult[0].count) : 0;
         }
 
         // Attendance percentage
@@ -32,12 +33,12 @@ const getDashboardStats = async (req, res) => {
 
         // Streak — consecutive days with attendance
         let streak = 0;
-        const streakResult = queryAll(
-            `SELECT DISTINCT date FROM attendance WHERE user_id = ? ORDER BY date DESC LIMIT 30`,
+        const streakResult = await queryAll(
+            `SELECT DISTINCT date FROM attendance WHERE user_id = $1 ORDER BY date DESC LIMIT 30`,
             [userId]
         );
-        if (streakResult.length && streakResult[0].values.length) {
-            const dates = streakResult[0].values.map(r => r[0]);
+        if (streakResult.length > 0) {
+            const dates = streakResult.map(r => r.date);
             const today = new Date();
             for (let i = 0; i < dates.length; i++) {
                 const expected = new Date(today);
@@ -52,23 +53,36 @@ const getDashboardStats = async (req, res) => {
         }
 
         // Recent activity (last 5)
-        const recentResult = queryAll(
-            `SELECT a.date, a.status, a.marked_at, c.code, c.name
+        const recentResult = await queryAll(
+            `SELECT a.date, a.status, a.marked_at, c.code as class_code, c.name as class_name
        FROM attendance a LEFT JOIN classes c ON a.class_id = c.id
-       WHERE a.user_id = ? ORDER BY a.marked_at DESC LIMIT 5`,
+       WHERE a.user_id = $1 ORDER BY a.marked_at DESC LIMIT 5`,
             [userId]
         );
-        const recent = [];
-        if (recentResult.length && recentResult[0].values.length) {
-            for (const row of recentResult[0].values) {
-                recent.push({ date: row[0], status: row[1], marked_at: row[2], class_code: row[3], class_name: row[4] });
-            }
-        }
+        const recent = recentResult || [];
 
         // Today's attendance count
         const today = new Date().toISOString().split('T')[0];
-        const todayResult = queryAll('SELECT COUNT(*) FROM attendance WHERE user_id = ? AND date = ?', [userId, today]);
-        const todayCount = todayResult.length ? todayResult[0].values[0][0] : 0;
+        const todayResult = await queryAll('SELECT COUNT(*) as count FROM attendance WHERE user_id = $1 AND date = $2', [userId, today]);
+        const todayCount = todayResult.length ? parseInt(todayResult[0].count) : 0;
+
+        // --- NEW: ASTRA V2 AGGREGATION & AI RISK SCORING ---
+        let predictedMarks = null;
+        let driftAnalysis = null;
+        try {
+            // Mock historical marks for now or fetch from DB if available
+            const historicalMarks = [75, 82, 78, 85, 80];
+            const recentAttArray = percentage > 0 ? [percentage/100, percentage/100, percentage/100] : [0,0,0];
+            
+            const [prediction, drift] = await Promise.all([
+                aiService.getPredictedMarks(userId, historicalMarks, recentAttArray),
+                aiService.getAttendanceDrift(userId, historicalMarks, recentAttArray)
+            ]);
+            predictedMarks = prediction;
+            driftAnalysis = drift;
+        } catch (e) {
+            console.error('Failed to aggregate AI stats for dashboard:', e);
+        }
 
         res.json({
             total_attended: totalAttended,
@@ -78,7 +92,12 @@ const getDashboardStats = async (req, res) => {
             percentage,
             streak,
             today_count: todayCount,
-            recent
+            recent,
+            // ASTRA V2 Metrics
+            predictive_insights: {
+                predicted_marks: predictedMarks,
+                drift_analysis: driftAnalysis
+            }
         });
     } catch (err) {
         console.error('Dashboard error:', err);

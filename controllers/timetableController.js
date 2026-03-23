@@ -1,53 +1,62 @@
-const { getDb, queryAll } = require('../db');
+const { getDb, queryAll, saveDb } = require('../database_module.js');
+const { getCachedData } = require('../services/redisService');
 
 const getTodayClasses = async (req, res) => {
     try {
-        const db = await getDb();
         const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        
-        // Use query param 'day' if provided, otherwise default to today
         const targetDay = req.query.day || days[new Date().getDay()];
         const todayDate = new Date().toISOString().split('T')[0];
+        const programme = req.user.programme || 'all';
+        const section = req.user.section || 'all';
 
-        console.log(`Fetching classes for: ${targetDay}, Programme: ${req.user.programme}, Section: ${req.user.section}`);
+        console.log(`Fetching classes for: ${targetDay}, Programme: ${programme}, Section: ${section}`);
+
+        // 🚀 REDIS CACHE STRATEGY: 
+        // Cache the raw schedule for 24 hours based on Day + Programme + Section
+        const cacheKey = `timetable:${targetDay}:${programme}:${section}`;
+        
+        const fetchScheduleFromDb = async () => {
+             let result;
+             if (programme !== 'all' && section !== 'all') {
+                 result = await queryAll(
+                     `SELECT c.id, c.code, c.name, c.faculty_name, c.room, c.start_time, c.end_time
+                      FROM classes c
+                      WHERE c.day = $1 AND c.programme = $2 AND c.section = $3
+                      ORDER BY c.start_time`,
+                     [targetDay, programme, section]
+                 );
+             } else {
+                 result = await queryAll(
+                     `SELECT c.id, c.code, c.name, c.faculty_name, c.room, c.start_time, c.end_time
+                      FROM classes c WHERE c.day = $1 ORDER BY c.start_time`,
+                     [targetDay]
+                 );
+             }
+             return result;
+        };
+
+        // Get data (from cache or DB)
+        const result = await getCachedData(cacheKey, fetchScheduleFromDb, 86400); // 24h caching
         
         let classes = [];
-        let result;
-        if (req.user.programme && req.user.section) {
-            result = queryAll(
-                `SELECT c.id, c.code, c.name, c.faculty_name, c.room, c.start_time, c.end_time
-          FROM classes c
-          WHERE c.day = ? AND c.programme = ? AND c.section = ?
-          ORDER BY c.start_time`,
-                [targetDay, req.user.programme, req.user.section]
-            );
-        } else {
-            console.log('No programme/section in user session, fetching all classes for the day');
-            result = queryAll(
-                `SELECT c.id, c.code, c.name, c.faculty_name, c.room, c.start_time, c.end_time
-          FROM classes c WHERE c.day = ? ORDER BY c.start_time`,
-                [targetDay]
-            );
-        }
-
-        if (result.length && result[0].values.length) {
-            console.log(`Found ${result[0].values.length} classes`);
-            for (const row of result[0].values) {
-                // Check if attendance already marked
-                const att = queryAll(
-                    'SELECT status FROM attendance WHERE user_id = ? AND class_id = ? AND date = ?',
-                    [req.user.id, row[0], todayDate]
+        if (result && result.length > 0) {
+            console.log(`Found ${result.length} classes for timetable`);
+            for (const row of result) {
+                // Check if attendance already marked (User specific, cannot be globally cached)
+                const att = await queryAll(
+                    'SELECT status FROM attendance WHERE user_id = $1 AND class_id = $2 AND date = $3',
+                    [req.user.id, row.id, todayDate]
                 );
-                const attended = att.length && att[0].values.length ? att[0].values[0][0] : null;
+                const attended = att.length > 0 ? att[0].status : null;
 
                 classes.push({
-                    id: row[0], code: row[1], name: row[2], faculty: row[3],
-                    room: row[4], start_time: row[5], end_time: row[6],
+                    id: row.id, code: row.code, name: row.name, faculty: row.faculty_name,
+                    room: row.room, start_time: row.start_time, end_time: row.end_time,
                     attendance_status: attended
                 });
             }
         } else {
-            console.log('No classes found in DB for this criteria');
+            console.log('No classes found for this criteria');
         }
 
         res.json({ day: targetDay, date: todayDate, classes });
@@ -69,12 +78,11 @@ const addClass = async (req, res) => {
         }
 
         const db = await getDb();
-        db.run(
+        await queryAll(
             `INSERT INTO classes (code, name, faculty_name, room, day, start_time, end_time, programme, section)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
             [code, name, faculty_name || null, room || null, day, start_time, end_time, programme || null, section || null]
         );
-        require('../db').saveDb();
 
         res.json({ success: true, message: 'Class added' });
     } catch (err) {

@@ -65,10 +65,12 @@ async function run() {
         else if (st.att >= 75) st.status = 'present';
         else st.status = 'at-risk';
 
+       const bcrypt = require('bcryptjs');
+        const hash123 = bcrypt.hashSync('123', 10);
         db.run(
             `INSERT INTO users (roll_number, name, programme, section, role, password_hash)
-             VALUES (?, ?, ?, ?, 'student', '123')`,
-            [st.id, st.name, st.prog, st.section]
+             VALUES (?, ?, ?, ?, 'student', ?)`,
+            [st.id, st.name, st.prog, st.section, hash123]
         );
     }
     console.log('Inserted new students into DB.');

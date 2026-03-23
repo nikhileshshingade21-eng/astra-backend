@@ -5,7 +5,7 @@ async function fixProfiles() {
     const db = await getDb();
     
     // Find students with CS roll numbers but missing/wrong programme or section
-    const students = queryAll("SELECT id, roll_number, programme, section FROM users WHERE role = 'student' AND roll_number LIKE '25N81A62%'");
+    const students = await queryAll("SELECT id, roll_number, programme, section FROM users WHERE role = 'student' AND roll_number LIKE '25N81A62%'");
     
     if (!students.length || !students[0].values.length) {
         console.log('No CS students found in DB.');

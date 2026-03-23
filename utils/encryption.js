@@ -1,7 +1,15 @@
 const crypto = require('crypto');
 
-// Master Key should be a 64-char hex string (32 bytes)
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'; 
+let rawKey = (process.env.ENCRYPTION_KEY || "").replace(/['"\s]+/g, "");
+if (rawKey.length === 0) {
+    rawKey = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+}
+if (rawKey.length < 64) {
+    rawKey = rawKey.padEnd(64, '0');
+} else if (rawKey.length > 64) {
+    rawKey = rawKey.substring(0, 64);
+}
+const ENCRYPTION_KEY = rawKey;
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
 

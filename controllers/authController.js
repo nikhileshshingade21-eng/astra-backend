@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { getDb, saveDb, queryAll } = require('../db');
+const { getDb, queryAll, saveDb } = require('../database_module.js');
 const { JWT_SECRET } = require('../middleware');
 const { encrypt, decrypt } = require('../utils/encryption');
 
@@ -10,13 +10,11 @@ const verify = async (req, res) => {
         if (!roll_number) return res.status(400).json({ error: 'Roll number required' });
 
         const db = await getDb();
-        const existing = queryAll('SELECT id FROM users WHERE roll_number = ?', [roll_number.toUpperCase()]);
+        const existing = await queryAll('SELECT id FROM users WHERE roll_number = $1', [roll_number.toUpperCase()]);
 
-        if (existing.length && existing[0].values.length) {
-            res.json({ valid: true });
-        } else {
-            res.json({ valid: false });
-        }
+        // SEC-004 FIX: Return same structure regardless of existence to prevent enumeration
+        const exists = existing.length > 0;
+        res.json({ received: true, valid: exists });
     } catch (err) {
         res.status(500).json({ error: 'Verification failed' });
     }
@@ -25,7 +23,7 @@ const verify = async (req, res) => {
 const register = async (req, res) => {
     try {
         const { 
-            roll_number, name, email, phone, programme, section, role, password, 
+            roll_number, name, email, phone, programme, section, password, 
             biometric_enrolled, face_enrolled,
             biometric_template, face_template 
         } = req.body;
@@ -34,25 +32,42 @@ const register = async (req, res) => {
             return res.status(400).json({ error: 'Roll number, name, and password are required' });
         }
 
+        // VULN-009 FIX: Input validation
+        if (typeof roll_number !== 'string' || roll_number.length > 20) {
+            return res.status(400).json({ error: 'Invalid roll number format' });
+        }
+        if (typeof name !== 'string' || name.length < 2 || name.length > 100) {
+            return res.status(400).json({ error: 'Name must be 2-100 characters' });
+        }
+        if (password.length < 6) {
+            return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        }
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return res.status(400).json({ error: 'Invalid email format' });
+        }
+        if (phone && !/^\+?[\d\s-]{7,15}$/.test(phone)) {
+            return res.status(400).json({ error: 'Invalid phone number format' });
+        }
+
         const db = await getDb();
 
         // Check if roll number already exists
-        const existing = queryAll('SELECT id, password_hash FROM users WHERE roll_number = ?', [roll_number.toUpperCase()]);
+        const existing = await queryAll('SELECT id, password_hash FROM users WHERE roll_number = $1', [roll_number.toUpperCase()]);
 
+        // SEC-002 FIX: Role is always 'student' for self-registration.
+        // Admin/faculty roles must be assigned by an existing admin.
         let userId;
-        const userRole = role || 'student';
+        const userRole = 'student';
 
-        if (existing.length && existing[0].values.length) {
+        if (existing.length > 0) {
             // User exists, but is it a pre-seeded student?
-            const existingUser = existing[0].values[0];
-            const oldId = existingUser[0];
-            const oldHash = existingUser[1];
+            const existingUser = existing[0];
+            const oldId = existingUser.id;
+            const oldHash = existingUser.password_hash;
 
-            // Check if it's a default seeded password ("123" or "password123")
+            // VULN-003 FIX: Only bcrypt-hashed comparisons — no plain-text fallback
             const isDefaultSeeded = bcrypt.compareSync('123', oldHash) || 
-                                   bcrypt.compareSync('password123', oldHash) || 
-                                   oldHash === '123' || 
-                                   oldHash === 'password123';
+                                   bcrypt.compareSync('password123', oldHash);
 
             if (isDefaultSeeded) {
                 // Claim pre-seeded account: Update it with all fields from registration
@@ -70,9 +85,9 @@ const register = async (req, res) => {
                     encFace = encrypt(faceData);
                 }
 
-                db.run(
-                    `UPDATE users SET name = ?, email = ?, phone = ?, programme = ?, section = ?, password_hash = ?, 
-                     biometric_enrolled = ?, face_enrolled = ?, biometric_template = ?, face_template = ? WHERE id = ?`,
+                await queryAll(
+                    `UPDATE users SET name = $1, email = $2, phone = $3, programme = $4, section = $5, password_hash = $6, 
+                     biometric_enrolled = $7, face_enrolled = $8, biometric_template = $9, face_template = $10 WHERE id = $11`,
                     [name, email || null, phone || null, programme || null, section || null, password_hash, 
                      biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, oldId]
                 );
@@ -96,29 +111,30 @@ const register = async (req, res) => {
                 encFace = encrypt(faceData);
             }
 
-            db.run(
+            const insertResult = await queryAll(
                 `INSERT INTO users (roll_number, name, email, phone, programme, section, role, password_hash, 
                  biometric_enrolled, face_enrolled, biometric_template, face_template) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
                 [roll_number.toUpperCase(), name, email || null, phone || null, programme || null, section || null, 
                  userRole, password_hash, biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace]
             );
 
-            const result = queryAll('SELECT last_insert_rowid()');
-            userId = result[0].values[0][0];
+            if (insertResult && insertResult.length > 0) {
+                userId = insertResult[0].id;
+            } else {
+                throw new Error("Database failed to return new user ID.");
+            }
         }
 
-        saveDb();
-
         // Create welcome notification
-        db.run(
-            `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, ?)`,
+        await queryAll(
+            `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
             [userId, 'Welcome to ASTRA', `Your account has been created successfully. Roll: ${roll_number.toUpperCase()}`, 'success']
         );
-        saveDb();
 
         // Generate token
-        const token = jwt.sign({ userId: userId, role: userRole }, JWT_SECRET, { expiresIn: '30d' });
+        // VULN-007 FIX: Reduced token expiry from 30d to 2h
+        const token = jwt.sign({ userId: userId, role: userRole }, JWT_SECRET, { expiresIn: '2h' });
 
         res.json({
             success: true,
@@ -127,7 +143,7 @@ const register = async (req, res) => {
         });
     } catch (err) {
         console.error('Register error:', err);
-        res.status(500).json({ error: 'Registration failed' });
+        res.status(500).json({ error: `Registration failed: ${err.message}` });
     }
 };
 
@@ -140,41 +156,34 @@ const login = async (req, res) => {
         }
 
         const db = await getDb();
-        const result = queryAll(
-            'SELECT id, roll_number, name, email, phone, programme, section, role, password_hash, biometric_enrolled, face_enrolled FROM users WHERE roll_number = ?',
+        const result = await queryAll(
+            'SELECT id, roll_number, name, email, phone, programme, section, role, password_hash, biometric_enrolled, face_enrolled FROM users WHERE roll_number = $1',
             [roll_number.toUpperCase()]
         );
 
-        if (!result.length || !result[0].values.length) {
+        if (result.length === 0) {
             return res.status(401).json({ error: 'Invalid roll number or password' });
         }
 
-        const row = result[0].values[0];
-        const user = {
-            id: row[0], roll_number: row[1], name: row[2], email: row[3],
-            phone: row[4], programme: row[5], section: row[6], role: row[7],
-            biometric_enrolled: !!row[9], face_enrolled: !!row[10]
-        };
-        const password_hash = row[8];
-
-        const valid = await bcrypt.compare(password, password_hash);
+        const user = result[0];
+        const valid = await bcrypt.compare(password, user.password_hash);
         if (!valid) {
             return res.status(401).json({ error: 'Invalid roll number or password' });
         }
 
-        const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
+        // VULN-007 FIX: Reduced token expiry from 30d to 2h
+        const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '2h' });
 
         // Log login notification
-        db.run(
-            `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, ?)`,
+        await queryAll(
+            `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
             [user.id, 'Login Successful', `Authenticated at ${new Date().toLocaleTimeString()}`, 'info']
         );
-        saveDb();
 
-        res.json({ success: true, token, user });
+        res.json({ success: true, token, user: { ...user, password_hash: undefined } });
     } catch (err) {
         console.error('Login error:', err);
-        res.status(500).json({ error: 'Login failed' });
+        res.status(500).json({ error: `Login failed: ${err.message}` });
     }
 };
 

@@ -1,4 +1,4 @@
-const { getDb, queryAll } = require('../db');
+const { getDb, queryAll, saveDb } = require('../database_module.js');
 
 const addMark = async (req, res) => {
     try {
@@ -12,11 +12,10 @@ const addMark = async (req, res) => {
         }
 
         const db = await getDb();
-        db.run(
-            `INSERT INTO marks (user_id, class_id, exam_type, marks_obtained, total_marks) VALUES (?, ?, ?, ?, ?)`,
+        await queryAll(
+            `INSERT INTO marks (user_id, class_id, exam_type, marks_obtained, total_marks) VALUES ($1, $2, $3, $4, $5)`,
             [user_id, class_id || null, exam_type, marks_obtained, total_marks]
         );
-        require('../db').saveDb();
 
         res.json({ success: true, message: 'Marks added successfully' });
     } catch (err) {
@@ -28,26 +27,16 @@ const addMark = async (req, res) => {
 const getMyMarks = async (req, res) => {
     try {
         const db = await getDb();
-        const result = queryAll(
+        const result = await queryAll(
             `SELECT m.id, m.exam_type, m.marks_obtained, m.total_marks, m.date, c.name as class_name
              FROM marks m 
              LEFT JOIN classes c ON m.class_id = c.id
-             WHERE m.user_id = ? 
+             WHERE m.user_id = $1 
              ORDER BY m.date DESC`,
             [req.user.id]
         );
 
-        const marks = [];
-        if (result.length && result[0].values.length) {
-            for (const row of result[0].values) {
-                marks.push({
-                    id: row[0], exam_type: row[1], marks_obtained: row[2],
-                    total_marks: row[3], date: row[4], class_name: row[5] || 'General'
-                });
-            }
-        }
-
-        res.json({ marks });
+        res.json({ marks: result });
     } catch (err) {
         console.error('Get marks error:', err);
         res.status(500).json({ error: 'Failed to fetch marks' });
@@ -62,26 +51,16 @@ const getClassMarks = async (req, res) => {
         
         const { classId } = req.params;
         const db = await getDb();
-        const result = queryAll(
+        const result = await queryAll(
             `SELECT m.id, u.name as student_name, u.roll_number, m.exam_type, m.marks_obtained, m.total_marks, m.date
              FROM marks m
              JOIN users u ON m.user_id = u.id
-             WHERE m.class_id = ?
+             WHERE m.class_id = $1
              ORDER BY u.roll_number ASC, m.date DESC`,
             [classId]
         );
 
-        const marks = [];
-        if (result.length && result[0].values.length) {
-            for (const row of result[0].values) {
-                marks.push({
-                    id: row[0], student_name: row[1], roll_number: row[2],
-                    exam_type: row[3], marks_obtained: row[4], total_marks: row[5], date: row[6]
-                });
-            }
-        }
-
-        res.json({ class_id: classId, marks });
+        res.json({ class_id: classId, marks: result });
     } catch (err) {
         console.error('Get class marks error:', err);
         res.status(500).json({ error: 'Failed to fetch class marks' });

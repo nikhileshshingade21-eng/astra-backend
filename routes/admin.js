@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { authMiddleware } = require('../middleware');
-const { addZone, listZones, listUsers, getStats, getTracker, pingClass, uploadStudentData } = require('../controllers/adminController');
+const { addZone, listZones, listUsers, getStats, getTracker, pingClass, uploadStudentData, getThreatLogs, getBannedUsers, unbanUser } = require('../controllers/adminController');
 
 // Multer Configuration for Secure Uploads (Phase 1)
 const storage = multer.memoryStorage();
@@ -40,21 +40,31 @@ function adminOnly(req, res, next) {
 router.post('/zone', authMiddleware, adminOnly, addZone);
 
 // GET /api/admin/zones — List all campus zones
-router.get('/zones', authMiddleware, listZones);
+router.get('/zones', authMiddleware, adminOnly, listZones);
 
 // GET /api/admin/users — List all users
-router.get('/users', authMiddleware, listUsers);
+router.get('/users', authMiddleware, adminOnly, listUsers);
 
 // GET /api/admin/stats — Overall stats
 router.get('/stats', authMiddleware, adminOnly, getStats);
 
 // GET /api/admin/tracker/:rollNumber — Get student activity trail
-router.get('/tracker/:rollNumber', authMiddleware, getTracker);
+router.get('/tracker/:rollNumber', authMiddleware, adminOnly, getTracker);
 
 // POST /api/admin/ping — Broadcast a silent ping to a class
 router.post('/ping', authMiddleware, adminOnly, pingClass);
 
 // POST /api/admin/upload — Securely upload and encrypt student data files
 router.post('/upload', authMiddleware, adminOnly, upload.single('file'), uploadStudentData);
+
+// 🛡️ THREAT MANAGEMENT ROUTES
+// GET /api/admin/threats — View all threat events (AI scored)
+router.get('/threats', authMiddleware, adminOnly, getThreatLogs);
+
+// GET /api/admin/bans — View all banned/locked users
+router.get('/bans', authMiddleware, adminOnly, getBannedUsers);
+
+// POST /api/admin/unban — Lift a ban (admin review)
+router.post('/unban', authMiddleware, adminOnly, unbanUser);
 
 module.exports = router;
