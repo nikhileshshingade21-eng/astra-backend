@@ -8,6 +8,8 @@ const authRoutes = require('./routes/auth');
 const attendanceRoutes = require('./routes/attendance');
 const dashboardRoutes = require('./routes/dashboard');
 const timetableRoutes = require('./routes/timetable');
+const { protect } = require('./middleware/authMiddleware');
+const { submitFeedback, getAllFeedback } = require('./controllers/feedbackController');
 const notificationRoutes = require('./routes/notifications');
 const adminRoutes = require('./routes/admin');
 const aiRoutes = require('./routes/ai');
@@ -86,6 +88,10 @@ app.use('/api/ai/approvals', require('./routes/aiApprovals'));
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', server: 'ASTRA Backend', version: '1.0.0', time: new Date().toISOString() });
 });
+
+// Feedback System (Phase 4)
+app.post('/api/feedback', protect, submitFeedback);
+app.get('/api/feedback', protect, getAllFeedback);
 
 // 404 handler — catch unmatched routes
 app.use((req, res) => {
