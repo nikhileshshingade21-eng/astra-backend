@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const { getDb } = require('./database_module.js');
+const { getDb, queryAll } = require('./database_module.js');
 
 const authRoutes = require('./routes/auth');
 const attendanceRoutes = require('./routes/attendance');
