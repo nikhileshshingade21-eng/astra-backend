@@ -46,6 +46,8 @@ async function detectGpsAnomaly(userId, gps_lat, gps_lng) {
         const lastRow = lastRecord[0];
         const { gps_lat: lastLat, gps_lng: lastLng, marked_at: lastTime } = lastRow;
         if (lastLat && lastLng && lastTime) {
+            const distMeters = haversine(gps_lat, gps_lng, parseFloat(lastLat), parseFloat(lastLng));
+            const timeDiffMs = new Date() - new Date(lastTime);
             const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
 
             if (timeDiffHours > 0) {
@@ -236,15 +238,15 @@ const getLiveAttendance = async (req, res) => {
 
         const students = [];
         let count = 0;
-        if (result.length && result[0].values.length) {
-            for (const row of result[0].values) {
-                if (row[3]) count++; // marked status exists
+        if (result && result.length > 0) {
+            for (const row of result) {
+                if (row.status) count++; // marked status exists
                 students.push({
-                    id: row[0],
-                    roll_number: row[1],
-                    name: row[2],
-                    status: row[3] || null,
-                    marked_at: row[4] || null
+                    id: row.id,
+                    roll_number: row.roll_number,
+                    name: row.name,
+                    status: row.status || null,
+                    marked_at: row.marked_at || null
                 });
             }
         }

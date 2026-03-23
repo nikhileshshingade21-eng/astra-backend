@@ -11,10 +11,19 @@ const verify = async (req, res) => {
 
         const db = await getDb();
         const existing = await queryAll('SELECT id FROM users WHERE roll_number = $1', [roll_number.toUpperCase()]);
+        
+        // CHECK INSTITUTIONAL REGISTRY (Phase 4)
+        const verified = await queryAll('SELECT id FROM verified_students WHERE roll_number = $1', [roll_number.toUpperCase()]);
 
         // SEC-004 FIX: Return same structure regardless of existence to prevent enumeration
         const exists = existing.length > 0;
-        res.json({ received: true, valid: exists });
+        const isVerified = verified.length > 0;
+
+        res.json({ 
+            received: true, 
+            valid: isVerified, // Student must be in verified_students to be "valid" for registration
+            registered: exists // If they are already in users, they are "registered"
+        });
     } catch (err) {
         res.status(500).json({ error: 'Verification failed' });
     }
@@ -50,6 +59,12 @@ const register = async (req, res) => {
         }
 
         const db = await getDb();
+
+        // CHECK INSTITUTIONAL REGISTRY (Phase 4)
+        const verifiedList = await queryAll('SELECT id FROM verified_students WHERE roll_number = $1', [roll_number.toUpperCase()]);
+        if (verifiedList.length === 0) {
+            return res.status(403).json({ error: 'Identity not found in institutional registry. Please contact admin.' });
+        }
 
         // Check if roll number already exists
         const existing = await queryAll('SELECT id, password_hash FROM users WHERE roll_number = $1', [roll_number.toUpperCase()]);
@@ -134,7 +149,7 @@ const register = async (req, res) => {
 
         // Generate token
         // VULN-007 FIX: Reduced token expiry from 30d to 2h
-        const token = jwt.sign({ userId: userId, role: userRole }, JWT_SECRET, { expiresIn: '2h' });
+        const token = jwt.sign({ userId: userId, role: userRole }, JWT_SECRET, { expiresIn: '7d' });
 
         res.json({
             success: true,
@@ -172,7 +187,7 @@ const login = async (req, res) => {
         }
 
         // VULN-007 FIX: Reduced token expiry from 30d to 2h
-        const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '2h' });
+        const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
 
         // Log login notification
         await queryAll(

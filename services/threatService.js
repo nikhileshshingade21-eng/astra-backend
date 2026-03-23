@@ -15,21 +15,16 @@ const AI_URL = process.env.AI_ENGINE_URL || 'http://localhost:8000';
 
 /**
  * Report a threat event — analyzes via AI, logs it, and takes action
- * @param {string} eventType - gps_spoof, brute_force, role_tamper, biometric_bypass, rapid_requests
- * @param {number} userId - The user who triggered the event
- * @param {object} details - Event-specific data
- * @param {string} ipAddress - Request IP address
- * @returns {object} - Threat analysis result with action taken
  */
 async function reportThreat(eventType, userId, details = {}, ipAddress = null) {
     const db = await getDb();
 
     // Count recent violations for this user (last 1 hour)
     const recentViolations = await queryAll(
-        `SELECT COUNT(*) FROM threat_logs WHERE user_id = ? AND created_at > NOW() - INTERVAL '1 hour'`,
+        `SELECT COUNT(*) as count FROM threat_logs WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
         [userId]
     );
-    const violationCount = recentViolations.length ? recentViolations[0].values[0][0] : 0;
+    const violationCount = recentViolations.length ? parseInt(recentViolations[0].count) : 0;
 
     // Send to AI engine for threat scoring
     let analysis = null;
@@ -49,20 +44,25 @@ async function reportThreat(eventType, userId, details = {}, ipAddress = null) {
     }
 
     // Log the threat event to database
-    db.run(
-        `INSERT INTO threat_logs (user_id, event_type, threat_score, severity, action_taken, details, ip_address, ai_recommendation)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-            userId,
-            eventType,
-            analysis.threat_score,
-            analysis.severity,
-            analysis.action,
-            JSON.stringify(details),
-            ipAddress,
-            analysis.recommendation
-        ]
-    );
+    try {
+        await queryAll(
+            `INSERT INTO threat_logs (user_id, event_type, threat_score, severity, action_taken, details, ip_address, ai_recommendation)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+                userId,
+                eventType,
+                analysis.threat_score,
+                analysis.severity,
+                analysis.action,
+                JSON.stringify(details),
+                ipAddress,
+                analysis.recommendation
+            ]
+        );
+    } catch (logErr) {
+        // threat_logs table may not exist yet — don't crash the app
+        console.warn('[THREAT] Could not log threat (table may not exist):', logErr.message);
+    }
 
     // Execute the recommended action
     if (analysis.action === 'lockdown' || analysis.action === 'block') {
@@ -71,8 +71,6 @@ async function reportThreat(eventType, userId, details = {}, ipAddress = null) {
 
     // Alert ALL admins
     await alertAdmins(userId, eventType, analysis);
-
-    saveDb();
 
     console.warn(`[🛡️ THREAT] User ${userId} | ${eventType} | Score: ${analysis.threat_score} | Action: ${analysis.action}`);
 
@@ -111,71 +109,74 @@ function localThreatScore(eventType, recentViolations, details) {
  * Ban/lock a user account
  */
 async function banUser(userId, analysis) {
-    const db = await getDb();
+    try {
+        // Check if already banned
+        const existingBan = await queryAll(
+            `SELECT id FROM banned_users WHERE user_id = $1 AND unbanned = 0 AND (expires_at IS NULL OR expires_at > NOW())`,
+            [userId]
+        );
+        if (existingBan && existingBan.length > 0) return; // Already banned
 
-    // Check if already banned
-    const existingBan = await queryAll(
-        `SELECT id FROM banned_users WHERE user_id = ? AND unbanned = 0 AND (expires_at IS NULL OR expires_at > NOW())`,
-        [userId]
-    );
-    if (existingBan.length && existingBan[0].values.length) return; // Already banned
+        // Determine ban duration based on severity
+        let expiresAt = null;
+        let isPermanent = 0;
 
-    // Determine ban duration based on severity
-    let expiresAt = null;
-    let isPermanent = 0;
+        if (analysis.action === 'lockdown') {
+            isPermanent = 1; // Permanent until admin reviews
+        } else {
+            // Temporary 1-hour block
+            expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        }
 
-    if (analysis.action === 'lockdown') {
-        isPermanent = 1; // Permanent until admin reviews
-    } else {
-        // Temporary 1-hour block
-        expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        await queryAll(
+            `INSERT INTO banned_users (user_id, reason, threat_score, expires_at, is_permanent)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [userId, analysis.reason, analysis.threat_score, expiresAt, isPermanent]
+        );
+
+        // Notify the user they've been blocked
+        await queryAll(
+            `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
+            [userId, '⛔ Account Suspended', `Your account has been suspended due to: ${analysis.reason}. Contact admin for appeal.`, 'danger']
+        );
+
+        console.warn(`[🔒 BANNED] User ${userId} | Permanent: ${isPermanent} | Score: ${analysis.threat_score}`);
+    } catch (err) {
+        console.warn('[THREAT] Ban operation failed (tables may not exist):', err.message);
     }
-
-    db.run(
-        `INSERT INTO banned_users (user_id, reason, threat_score, expires_at, is_permanent)
-         VALUES (?, ?, ?, ?, ?)`,
-        [userId, analysis.reason, analysis.threat_score, expiresAt, isPermanent]
-    );
-
-    // Notify the user they've been blocked
-    db.run(
-        `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, ?)`,
-        [userId, '⛔ Account Suspended', `Your account has been suspended due to: ${analysis.reason}. Contact admin for appeal.`, 'danger']
-    );
-
-    console.warn(`[🔒 BANNED] User ${userId} | Permanent: ${isPermanent} | Score: ${analysis.threat_score}`);
 }
 
 /**
  * Send alert notifications to ALL admin users
  */
 async function alertAdmins(userId, eventType, analysis) {
-    const db = await getDb();
-
-    // Get user info for the alert
-    const userInfo = await queryAll('SELECT roll_number, name FROM users WHERE id = ?', [userId]);
-    let userName = 'Unknown';
-    let rollNumber = 'N/A';
-    if (userInfo.length && userInfo[0].values.length) {
-        rollNumber = userInfo[0].values[0][0];
-        userName = userInfo[0].values[0][1];
-    }
-
-    // Find all admin users
-    const admins = await queryAll("SELECT id FROM users WHERE role = 'admin'");
-    if (admins.length && admins[0].values.length) {
-        for (const row of admins[0].values) {
-            const adminId = row[0];
-            db.run(
-                `INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, ?)`,
-                [
-                    adminId,
-                    `🚨 THREAT ALERT: ${analysis.severity.toUpperCase()}`,
-                    `[${eventType.toUpperCase()}] Student ${userName} (${rollNumber}) | Score: ${analysis.threat_score}/100 | Action: ${analysis.action} | ${analysis.reason}`,
-                    'danger'
-                ]
-            );
+    try {
+        // Get user info for the alert
+        const userInfo = await queryAll('SELECT roll_number, name FROM users WHERE id = $1', [userId]);
+        let userName = 'Unknown';
+        let rollNumber = 'N/A';
+        if (userInfo && userInfo.length > 0) {
+            rollNumber = userInfo[0].roll_number || 'N/A';
+            userName = userInfo[0].name || 'Unknown';
         }
+
+        // Find all admin users
+        const admins = await queryAll("SELECT id FROM users WHERE role = 'admin'");
+        if (admins && admins.length > 0) {
+            for (const admin of admins) {
+                await queryAll(
+                    `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
+                    [
+                        admin.id,
+                        `🚨 THREAT ALERT: ${analysis.severity.toUpperCase()}`,
+                        `[${eventType.toUpperCase()}] Student ${userName} (${rollNumber}) | Score: ${analysis.threat_score}/100 | Action: ${analysis.action} | ${analysis.reason}`,
+                        'danger'
+                    ]
+                );
+            }
+        }
+    } catch (err) {
+        console.warn('[THREAT] Admin alert failed:', err.message);
     }
 }
 
@@ -184,25 +185,30 @@ async function alertAdmins(userId, eventType, analysis) {
  * @returns {object|null} Ban record if banned, null if clear
  */
 async function isUserBanned(userId) {
-    const result = await queryAll(
-        `SELECT id, reason, threat_score, banned_at, expires_at, is_permanent 
-         FROM banned_users 
-         WHERE user_id = ? AND unbanned = 0 
-         AND (is_permanent = 1 OR expires_at > NOW())
-         ORDER BY banned_at DESC LIMIT 1`,
-        [userId]
-    );
+    try {
+        const result = await queryAll(
+            `SELECT id, reason, threat_score, banned_at, expires_at, is_permanent 
+             FROM banned_users 
+             WHERE user_id = $1 AND unbanned = 0 
+             AND (is_permanent = 1 OR expires_at > NOW())
+             ORDER BY banned_at DESC LIMIT 1`,
+            [userId]
+        );
 
-    if (result.length && result.length > 0 && result[0].values.length) {
-        const row = result[0].values[0];
-        return {
-            id: row[0],
-            reason: row[1],
-            threat_score: row[2],
-            banned_at: row[3],
-            expires_at: row[4],
-            is_permanent: !!row[5]
-        };
+        if (result && result.length > 0) {
+            const row = result[0];
+            return {
+                id: row.id,
+                reason: row.reason,
+                threat_score: row.threat_score,
+                banned_at: row.banned_at,
+                expires_at: row.expires_at,
+                is_permanent: !!row.is_permanent
+            };
+        }
+    } catch (err) {
+        // banned_users table may not exist — don't crash auth
+        console.warn('[THREAT] Ban check failed (table may not exist):', err.message);
     }
     return null;
 }

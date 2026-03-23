@@ -21,7 +21,8 @@ pool.on('connect', () => {
 
 pool.on('error', (err) => {
     console.error('[DB] Unexpected error on idle client', err);
-    process.exit(-1);
+    // VULN-015 FIX: Don't exit process on idle errors in production
+    // process.exit(-1);
 });
 
 async function getDb() {

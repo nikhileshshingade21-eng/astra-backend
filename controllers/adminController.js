@@ -310,8 +310,8 @@ const unbanUser = async (req, res) => {
 
         // Notify the user
         const banInfo = await queryAll('SELECT user_id FROM banned_users WHERE id = $1', [ban_id]);
-        if (banInfo.length && banInfo[0].values.length) {
-            const userId = banInfo[0].values[0][0];
+        if (banInfo && banInfo.length > 0) {
+            const userId = banInfo[0].user_id;
             await queryAll(
                 `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
                 [userId, '✅ Account Reinstated', 'Your account has been reviewed and reinstated by an admin.', 'success']

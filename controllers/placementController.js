@@ -12,18 +12,15 @@ const getJobs = async (req, res) => {
             ORDER BY created_at DESC
         `);
 
-        let jobs = [];
-        if (result.length && result[0].values.length) {
-            jobs = result[0].values.map(row => ({
-                id: row[0],
-                company: row[1],
-                title: row[2],
-                description: row[3],
-                req_skills: row[4],
-                min_cgpa: row[5],
-                created_at: row[6]
-            }));
-        }
+        const jobs = (result || []).map(row => ({
+            id: row.id,
+            company: row.company,
+            title: row.title,
+            description: row.description,
+            req_skills: row.req_skills,
+            min_cgpa: row.min_cgpa,
+            created_at: row.created_at
+        }));
 
         res.json({ jobs });
     } catch (err) {
@@ -40,10 +37,8 @@ const getRecommendations = async (req, res) => {
         const studentId = req.user.id;
         
         // 1. Fetch student's academic profile (Marks)
-        const marksRes = await queryAll('SELECT subject, marks FROM marks WHERE user_id = ?', [studentId]);
-        const marks = marksRes.length && marksRes[0].values.length 
-            ? marksRes[0].values.map(m => m[1]) 
-            : [];
+        const marksRes = await queryAll('SELECT subject, marks FROM marks WHERE user_id = $1', [studentId]);
+        const marks = (marksRes || []).map(m => m.marks);
         
         // Calculate very rough CGPA proxy
         const avgMarks = marks.length ? marks.reduce((a, b) => a + b, 0) / marks.length : 0;
@@ -51,16 +46,13 @@ const getRecommendations = async (req, res) => {
 
         // 2. Fetch all jobs
         const result = await queryAll(`SELECT id, company, title, req_skills, min_cgpa FROM jobs`);
-        let availableJobs = [];
-        if (result.length && result[0].values.length) {
-            availableJobs = result[0].values.map(row => ({
-                id: row[0],
-                company: row[1],
-                title: row[2],
-                req_skills: row[3],
-                min_cgpa: row[4]
-            }));
-        }
+        const availableJobs = (result || []).map(row => ({
+            id: row.id,
+            company: row.company,
+            title: row.title,
+            req_skills: row.req_skills,
+            min_cgpa: row.min_cgpa
+        }));
 
         if (availableJobs.length === 0) {
             return res.json({ recommendations: [] });
@@ -93,10 +85,9 @@ const addJob = async (req, res) => {
 
         await queryAll(
             `INSERT INTO jobs (company, title, description, req_skills, min_cgpa)
-             VALUES (?, ?, ?, ?, ?)`,
+             VALUES ($1, $2, $3, $4, $5)`,
             [company, title, description, req_skills || '', min_cgpa || 0]
         );
-        saveDb();
 
         res.status(201).json({ message: 'Job posted successfully' });
     } catch (err) {

@@ -15,6 +15,7 @@ const adminRoutes = require('./routes/admin');
 const aiRoutes = require('./routes/ai');
 const marksRoutes = require('./routes/marks');
 const leavesRoutes = require('./routes/leaves');
+const { getAnnouncements, createAnnouncement } = require('./controllers/announcementController');
 const { scheduleV3Jobs } = require('./services/workflowEngine');
 const socketService = require('./services/socketService');
 const http = require('http');
@@ -92,6 +93,10 @@ app.get('/api/health', (req, res) => {
 // Feedback System (Phase 4)
 app.post('/api/feedback', protect, submitFeedback);
 app.get('/api/feedback', protect, getAllFeedback);
+
+// Announcements System (Phase 5)
+app.get('/api/announcements', protect, getAnnouncements);
+app.post('/api/announcements', protect, createAnnouncement);
 
 // 404 handler — catch unmatched routes
 app.use((req, res) => {
