@@ -60,7 +60,8 @@ app.use(cors({
     credentials: true
 }));
 
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ limit: '20mb', extended: true }));
 
 // HIGH-02 FIX: Rate limiting
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many login attempts. Try again in 15 minutes.' } });
@@ -78,7 +79,8 @@ if (process.env.NODE_ENV === 'production') {
 
 // VULN-013 FIX: Sanitized request logging (no sensitive data)
 app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+    const size = req.headers['content-length'] ? (req.headers['content-length'] / 1024).toFixed(2) + ' KB' : 'unknown';
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - Size: ${size}`);
     next();
 });
 
