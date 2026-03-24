@@ -142,7 +142,9 @@ async function start() {
         try {
             console.log('[START] Initializing Database...');
             await getDb(); 
-            console.log('[START] Database Connected.');
+            const { invalidateCache } = require('./services/cacheService');
+            await invalidateCache('campus_zones_all');
+            console.log('🔥 Campus Zones Cache Invalidated.');
             
             console.log('[START] Starting Background Jobs...');
             await scheduleV3Jobs(); 
