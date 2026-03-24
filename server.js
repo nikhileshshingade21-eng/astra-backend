@@ -130,9 +130,13 @@ async function start() {
     const server = http.createServer(app);
     socketService.init(server);
 
+    const { invalidateCache } = require('./services/cacheService');
+    invalidateCache('timetable:*').then(() => console.log('🔥 Global Timetable Cache Cleared'));
+
     const PORT = process.env.PORT || 3000;
     
-    server.listen(PORT, '0.0.0.0', async () => {
+    server.listen(PORT, () => {
+        console.log(`🚀 ASTRA Backend running on port ${PORT}`);
         console.log(`\n  ╔══════════════════════════════════════╗`);
         console.log(`  ║   ASTRA Backend Server v1.0.0        ║`);
         console.log(`  ║   Running on http://0.0.0.0:${PORT}     ║`);
