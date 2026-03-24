@@ -47,24 +47,41 @@ router.get('/me', authMiddleware, getMe);
 router.post('/emergency-seed', async (req, res) => {
     try {
         const { queryAll } = require('../database_module');
+        const { getCacheClient } = require('../services/cacheService');
+        
         // 1. Ensure user is verified
         await queryAll("INSERT INTO verified_students (roll_number) VALUES ($1) ON CONFLICT DO NOTHING", ['25N81A6258']);
+        
         // 2. Ensure user exists with correct profile
         await queryAll("UPDATE users SET programme = 'B.Tech CSC', section = 'CS' WHERE name LIKE '%Nikhilesh%'");
-        // 3. Seed Tuesday Classes
+
+        // 3. Seed Tuesday Classes with CORRECT COLUMNS
         const day = 'Tuesday';
         await queryAll("DELETE FROM classes WHERE day = $1 AND section = 'CS'", [day]);
+        
         const classes = [
-            ['Data Structures', '09:30 AM', '10:30 AM', 'L-101', 'Dr. Sharma'],
-            ['Python Lab', '10:30 AM', '12:30 PM', 'Lab-2', 'Prof. Rao'],
-            ['Mathematics III', '01:30 PM', '02:30 PM', 'L-102', 'Dr. Reddy'],
-            ['OS Principles', '02:30 PM', '03:30 PM', 'L-103', 'Dr. Verma'],
-            ['Digital Electronics', '03:30 PM', '04:30 PM', 'L-104', 'Prof. Kumar']
+            ['CS101', 'Data Structures', 'Dr. Sharma', 'L-101', '09:30 AM', '10:30 AM'],
+            ['CS102', 'Python Lab', 'Prof. Rao', 'Lab-2', '10:30 AM', '12:30 PM'],
+            ['CS103', 'Mathematics III', 'Dr. Reddy', 'L-102', '01:30 PM', '02:30 PM'],
+            ['CS104', 'OS Principles', 'Dr. Verma', 'L-103', '02:30 PM', '03:30 PM'],
+            ['CS105', 'Digital Electronics', 'Prof. Kumar', 'L-104', '03:30 PM', '04:30 PM']
         ];
+
         for (const c of classes) {
-            await queryAll(`INSERT INTO classes (title, start_time, end_time, room, faculty, day, programme, section) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [...c, day, 'B.Tech CSC', 'CS']);
+            await queryAll(`
+                INSERT INTO classes (code, name, faculty_name, room, start_time, end_time, day, programme, section)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `, [...c, day, 'B.Tech CSC', 'CS']);
         }
-        res.json({ success: true, message: `Seeded ${day} classes into live DB` });
+
+        // 4. CLEAR CACHE for the user's timetable
+        const redis = await getCacheClient();
+        if (redis && typeof redis.del === 'function') {
+            await redis.del(`timetable:${day}:B.Tech CSC:CS`);
+            console.log('[DB] Cleared timetable cache for CS');
+        }
+
+        res.json({ success: true, message: `Seeded ${day} classes and cleared cache` });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
