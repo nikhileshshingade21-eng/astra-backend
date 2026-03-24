@@ -62,7 +62,7 @@ const getTodayClasses = async (req, res) => {
         res.json({ day: targetDay, date: todayDate, classes });
     } catch (err) {
         console.error('Timetable error:', err);
-        res.status(500).json({ error: 'Failed to fetch timetable' });
+        res.status(500).json({ error: 'Failed to fetch timetable', details: err.message, stack: err.stack?.split('\n')[1] });
     }
 };
 
