@@ -4,7 +4,10 @@ const { getDashboardStats } = require('../controllers/dashboardController');
 
 const router = express.Router();
 
-// GET /api/dashboard — Get dashboard stats for the logged-in user
+// GET /api/dashboard/stats — Get dashboard stats (matches frontend call)
+router.get('/stats', authMiddleware, getDashboardStats);
+
+// GET /api/dashboard — Alias for stats
 router.get('/', authMiddleware, getDashboardStats);
 
 module.exports = router;

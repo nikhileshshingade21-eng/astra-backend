@@ -76,20 +76,23 @@ const getDashboardStats = async (req, res) => {
         );
         const rank = (rankResult.length ? parseInt(rankResult[0].rank) : 0) + 1;
 
-        // Subject breakdown
+        // Subject breakdown (group by name/code across all instances)
         const subjectResult = await queryAll(
             `SELECT c.code, c.name, 
               COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present,
-              COUNT(a.id) as total
+              COUNT(a.id) as total_attendance,
+              (SELECT COUNT(*) FROM classes c2 WHERE c2.name = c.name AND c2.programme = $2 AND c2.section = $3) as scheduled_count
              FROM classes c
              LEFT JOIN attendance a ON c.id = a.class_id AND a.user_id = $1
              WHERE c.programme = $2 AND c.section = $3
-             GROUP BY c.id, c.code, c.name`,
+             GROUP BY c.code, c.name`,
             [userId, req.user.programme || 'all', req.user.section || 'all']
         );
         
         const subjects = subjectResult.map((s, i) => {
-            const pct = s.total > 0 ? Math.round((parseInt(s.present) / parseInt(s.total)) * 100) : 0;
+            // If total_attendance is 0, percentage is 0. 
+            // If attendance has been marked, calculate (present / total_marked)
+            const pct = s.total_attendance > 0 ? Math.round((parseInt(s.present) / parseInt(s.total_attendance)) * 100) : 0;
             const colors = ['#0ea5e9', '#6366f1', '#10b981', '#3b82f6', '#f59e0b'];
             return {
                 name: s.name,
