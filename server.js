@@ -11,6 +11,7 @@ const dashboardRoutes = require('./routes/dashboard');
 const timetableRoutes = require('./routes/timetable');
 const { authMiddleware: protect } = require('./middleware');
 const { submitFeedback, getAllFeedback } = require('./controllers/feedbackController');
+const { isRedisConnected } = require('./services/cacheService');
 const notificationRoutes = require('./routes/notifications');
 const adminRoutes = require('./routes/admin');
 const aiRoutes = require('./routes/ai');
