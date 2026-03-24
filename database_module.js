@@ -11,50 +11,49 @@ if (!connectionStr && process.env.DB_HOST && process.env.DB_USER) {
 
 const pool = new Pool({
     connectionString: connectionStr,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    connectionTimeoutMillis: 10000, // 10s timeout to establish connection
+    query_timeout: 10000,           // 10s timeout for individual queries
+    idleTimeoutMillis: 30000,       // 30s before closing idle clients
+    max: 20                         // Max 20 concurrent connections
 });
 
 // DIAGNOSTIC LOG (SAFE): Log the host name to verify if we are on Railway or Supabase
 if (connectionStr) {
     const host = connectionStr.split('@')[1]?.split(':')[0] || 'Unknown';
-    console.log(`[DB] Connecting to host: ${host}`);
+    console.log(`[DB] Production Pool initialized for: ${host}`);
 }
 
-// Test connection on boot
-pool.on('connect', () => {
-    // Connection established
-});
-
 pool.on('error', (err) => {
-    console.error('[DB] Unexpected error on idle client', err);
-    // VULN-015 FIX: Don't exit process on idle errors in production
-    // process.exit(-1);
+    console.error('[DB] Unexpected error on idle client:', err.message);
 });
 
 async function getDb() {
     return pool;
 }
 
-// Wrapper to mimic the old SQLite API structure so we don't have to rewrite 100% of queries immediately
-// Note: SQL syntax itself (like ? vs $1) will need updating in the models/controllers
+// Wrapper to mimic the old SQLite API structure
 async function queryAll(sql, params = []) {
+    let client;
     try {
-        const client = await pool.connect();
-        try {
-            const res = await client.query(sql, params);
-            return res.rows || [];
-        } finally {
-            client.release();
-        }
+        client = await pool.connect();
+        const res = await client.query({
+            text: sql,
+            values: params,
+            timeout: 10000 // 10s per-query timeout
+        });
+        return res.rows || [];
     } catch (err) {
         // HIGH-05 FIX: Never log params (may contain passwords, biometric data)
         console.error('[DB] Query Error:', err.message, '\nSQL:', sql);
         throw err;
+    } finally {
+        if (client) client.release();
     }
 }
 
 function saveDb() {
-    // No-op for Postgres. Data is immediately persisted.
+    // No-op for Postgres.
 }
 
 // Ensure clean shutdown
