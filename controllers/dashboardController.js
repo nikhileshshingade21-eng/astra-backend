@@ -90,8 +90,7 @@ const getDashboardStats = async (req, res) => {
         );
         
         const subjects = subjectResult.map((s, i) => {
-            // If total_attendance is 0, percentage is 0. 
-            // If attendance has been marked, calculate (present / total_marked)
+            // ... (keep existing subjects logic)
             const pct = s.total_attendance > 0 ? Math.round((parseInt(s.present) / parseInt(s.total_attendance)) * 100) : 0;
             const colors = ['#0ea5e9', '#6366f1', '#10b981', '#3b82f6', '#f59e0b'];
             return {
@@ -101,6 +100,43 @@ const getDashboardStats = async (req, res) => {
                 color: colors[i % colors.length]
             };
         });
+
+        // --- NEW: CALENDAR RIBBON DATA (Last 7 days + Next 3 days) ---
+        const dailyStats = [];
+        const ribbonRange = 10; // Total 10 days
+        for (let i = -7; i <= 3; i++) {
+            const date = new Date();
+            date.setDate(date.getDate() + i);
+            const dateStr = date.toISOString().split('T')[0];
+            const isFuture = i > 0;
+            const isToday = i === 0;
+
+            const dayAttendance = await queryAll(
+                'SELECT status FROM attendance WHERE user_id = $1 AND date = $2 LIMIT 1',
+                [userId, dateStr]
+            );
+
+            let status = 'upcoming';
+            if (dayAttendance.length > 0) {
+                status = dayAttendance[0].status; // 'present' or 'late'
+            } else if (!isFuture && !isToday) {
+                // Check if it's a weekend (Sunday = 0, Saturday = 6)
+                const dayOfWeek = date.getDay();
+                if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                    status = 'absent';
+                } else {
+                    status = 'weekend';
+                }
+            }
+
+            dailyStats.push({
+                date: dateStr,
+                dayLabel: date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase(),
+                dayNum: date.getDate(),
+                status: status,
+                isToday
+            });
+        }
 
         // --- NEW: ASTRA V2 AGGREGATION & AI RISK SCORING ---
         let predictedMarks = null;
@@ -132,6 +168,7 @@ const getDashboardStats = async (req, res) => {
             subjects,
             today_count: todayCount,
             recent,
+            daily_stats: dailyStats,
             // ASTRA V2 Metrics
             predictive_insights: {
                 predicted_marks: predictedMarks,
