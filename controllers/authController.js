@@ -141,11 +141,11 @@ const register = async (req, res) => {
             }
         }
 
-        // Create welcome notification
-        await queryAll(
+        // Create welcome notification (Non-blocking)
+        queryAll(
             `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
             [userId, 'Welcome to ASTRA', `Your account has been created successfully. Roll: ${roll_number.toUpperCase()}`, 'success']
-        );
+        ).catch(e => console.error('Welcome notification failed:', e.message));
 
         // Generate token
         // VULN-007 FIX: Reduced token expiry from 30d to 2h
