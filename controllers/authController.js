@@ -102,9 +102,9 @@ const register = async (req, res) => {
 
                 await queryAll(
                     `UPDATE users SET name = $1, email = $2, phone = $3, programme = $4, section = $5, password_hash = $6, 
-                     biometric_enrolled = $7, face_enrolled = $8, biometric_template = $9, face_template = $10, is_registered = TRUE WHERE id = $11`,
+                     biometric_enrolled = $7, face_enrolled = $8, biometric_template = $9, face_template = $10, is_registered = TRUE, device_id = $11 WHERE id = $12`,
                     [name, email || null, phone || null, programme || null, section || null, password_hash, 
-                     biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, oldId]
+                     biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, device_id || null, oldId]
                 );
                 userId = oldId;
             } else {
@@ -172,7 +172,7 @@ const login = async (req, res) => {
 
         const db = await getDb();
         const result = await queryAll(
-            'SELECT id, roll_number, name, email, phone, programme, section, role, password_hash, biometric_enrolled, face_enrolled, is_registered FROM users WHERE roll_number = $1',
+            'SELECT id, roll_number, name, email, phone, programme, section, role, password_hash, biometric_enrolled, face_enrolled, is_registered, device_id FROM users WHERE roll_number = $1',
             [roll_number.toUpperCase()]
         );
 
@@ -181,6 +181,17 @@ const login = async (req, res) => {
         }
 
         const user = result[0];
+
+        // VULN-016 FIX: Device Binding Check
+        const { device_id } = req.body;
+        if (user.device_id && device_id && user.device_id !== device_id) {
+            return res.status(403).json({ error: 'This account is bound to another device. Contact Admin for reset.' });
+        }
+
+        // If no device bound yet, bind it now
+        if (!user.device_id && device_id) {
+            await queryAll('UPDATE users SET device_id = $1 WHERE id = $2', [device_id, user.id]);
+        }
 
         // VULN-015 FIX: Prevent login for unregistered/unclaimed accounts
         if (!user.is_registered) {
