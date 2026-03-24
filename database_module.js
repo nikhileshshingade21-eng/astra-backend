@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 
 // Initialize PostgreSQL Pool
 // This will normally pick up DATABASE_URL or component env vars
-let connectionStr = process.env.DATABASE_URL;
+let connectionStr = process.env.DATABASE_URL?.replace(/\n|\r/g, '').trim();
 
 // Robust Validation: If DATABASE_URL is mangled (e.g. truncated by a copy-paste error), ignore it
 if (connectionStr && (connectionStr.length < 30 || !connectionStr.includes('@'))) {
@@ -11,9 +11,13 @@ if (connectionStr && (connectionStr.length < 30 || !connectionStr.includes('@'))
 }
 
 if (!connectionStr && process.env.DB_HOST) {
-    // Construct connection string from stable parts
-    const { DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME } = process.env;
-    connectionStr = `postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT || 5432}/${DB_NAME}`;
+    // Construct connection string from stable parts (cleaned up)
+    const host = process.env.DB_HOST?.trim();
+    const user = process.env.DB_USER?.trim();
+    const pass = process.env.DB_PASSWORD?.trim();
+    const port = process.env.DB_PORT?.trim() || 5432;
+    const name = process.env.DB_NAME?.trim();
+    connectionStr = `postgresql://${user}:${pass}@${host}:${port}/${name}`;
 }
 
 const pool = new Pool({
