@@ -49,7 +49,6 @@ router.get('/diag-user', async (req, res) => {
         const { queryAll } = require('../database_module');
         const roll = req.query.roll || '25N81A6258';
         
-        // Helper to mask sensitive values
         const mask = (val) => val ? `${val.substring(0, 4)}...${val.substring(val.length - 4)}` : 'MISSING';
         
         const envs = {
@@ -69,7 +68,6 @@ router.get('/diag-user', async (req, res) => {
             env_check: envs
         });
     } catch (err) {
-        // Return full env check even on failure
         const mask = (val) => val ? `${val.substring(0, 4)}...${val.substring(val.length - 4)}` : 'MISSING';
         res.status(500).json({ 
             error: err.message,
@@ -80,6 +78,36 @@ router.get('/diag-user', async (req, res) => {
                 DB_NAME: mask(process.env.DB_NAME)
             }
         });
+    }
+});
+
+// --- DEBUG LOGIN (TEMPORARY) ---
+router.post('/debug-login', async (req, res) => {
+    try {
+        const bcrypt = require('bcryptjs');
+        const jwt = require('jsonwebtoken');
+        const { queryAll } = require('../database_module');
+        const { JWT_SECRET } = require('../middleware');
+        
+        const { roll_number, password } = req.body;
+        const result = await queryAll(
+            'SELECT id, roll_number, name, programme, section, role, password_hash FROM users WHERE roll_number = $1',
+            [roll_number.toUpperCase()]
+        );
+        
+        if (result.length === 0) return res.status(401).json({ error: 'User not found' });
+        
+        const user = result[0];
+        const valid = await bcrypt.compare(password, user.password_hash);
+        if (!valid) return res.status(401).json({ error: 'Invalid password' });
+        
+        const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '2h' });
+        
+        // Skip notifications insert — just return success
+        const { password_hash, ...safeUser } = user;
+        res.json({ success: true, token, user: safeUser });
+    } catch (err) {
+        res.status(500).json({ error: err.message, stack: err.stack?.split('\n')[1] });
     }
 });
 
