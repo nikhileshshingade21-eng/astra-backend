@@ -154,6 +154,24 @@ const getDashboardStats = async (req, res) => {
             daily_stats: dailyStats
         };
 
+        // --- NEW: BUNK CALCULATOR LOGIC ---
+        const A = presentCount + lateCount;
+        const T = totalAttended;
+        const target = 0.75;
+        let bunkData = { can_bunk: 0, must_attend: 0 };
+
+        if (T > 0) {
+            const currentPct = A / T;
+            if (currentPct >= target) {
+                // How many more can we miss? (A / (T + x) >= 0.75)
+                bunkData.can_bunk = Math.floor((A - target * T) / target);
+            } else {
+                // How many more must we attend consecutively? ((A + y) / (T + y) >= 0.75)
+                bunkData.must_attend = Math.ceil((target * T - A) / (1 - target));
+            }
+        }
+        responseData.bunk_stats = bunkData;
+
         if (req.user.role === 'admin') {
             const threatLogs = await queryAll(`
                 SELECT t.event_type as type, t.severity, t.details, t.created_at as time, u.name as user_name
