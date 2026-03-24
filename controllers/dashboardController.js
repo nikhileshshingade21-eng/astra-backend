@@ -28,8 +28,9 @@ const getDashboardStats = async (req, res) => {
             totalClasses = classResult.length ? parseInt(classResult[0].count) : 0;
         }
 
-        // Attendance percentage
-        const percentage = totalAttended > 0 ? Math.round((presentCount / totalAttended) * 100) : 0;
+        // Attendance percentage (Present + Late are both 'attended')
+        const attendedTotal = presentCount + lateCount;
+        const percentage = totalAttended > 0 ? Math.round((attendedTotal / totalAttended) * 100) : 0;
 
         // Streak — consecutive days with attendance
         let streak = 0;
@@ -80,6 +81,7 @@ const getDashboardStats = async (req, res) => {
         const subjectResult = await queryAll(
             `SELECT c.code, c.name, 
               COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present,
+              COUNT(CASE WHEN a.status = 'late' THEN 1 END) as late,
               COUNT(a.id) as total_attendance,
               (SELECT COUNT(*) FROM classes c2 WHERE c2.name = c.name AND c2.programme = $2 AND c2.section = $3) as scheduled_count
              FROM classes c
@@ -90,8 +92,9 @@ const getDashboardStats = async (req, res) => {
         );
         
         const subjects = subjectResult.map((s, i) => {
-            // ... (keep existing subjects logic)
-            const pct = s.total_attendance > 0 ? Math.round((parseInt(s.present) / parseInt(s.total_attendance)) * 100) : 0;
+            const attended = parseInt(s.present) + (parseInt(s.late) || 0);
+            const total = parseInt(s.total_attendance);
+            const pct = total > 0 ? Math.round((attended / total) * 100) : 0;
             const colors = ['#0ea5e9', '#6366f1', '#10b981', '#3b82f6', '#f59e0b'];
             return {
                 name: s.name,
@@ -154,7 +157,7 @@ const getDashboardStats = async (req, res) => {
             daily_stats: dailyStats
         };
 
-        // --- NEW: BUNK CALCULATOR LOGIC ---
+        // --- NEW: BUNK CALCULATOR LOGIC (Mathematically Accurate) ---
         const A = presentCount + lateCount;
         const T = totalAttended;
         const target = 0.75;
@@ -164,10 +167,12 @@ const getDashboardStats = async (req, res) => {
             const currentPct = A / T;
             if (currentPct >= target) {
                 // How many more can we miss? (A / (T + x) >= 0.75)
-                bunkData.can_bunk = Math.floor((A - target * T) / target);
+                // x <= (A - 0.75T) / 0.75
+                bunkData.can_bunk = Math.max(0, Math.floor((A - target * T) / target));
             } else {
                 // How many more must we attend consecutively? ((A + y) / (T + y) >= 0.75)
-                bunkData.must_attend = Math.ceil((target * T - A) / (1 - target));
+                // y >= (0.75T - A) / (1 - 0.75)
+                bunkData.must_attend = Math.max(0, Math.ceil((target * T - A) / (1 - target)));
             }
         }
         responseData.bunk_stats = bunkData;
