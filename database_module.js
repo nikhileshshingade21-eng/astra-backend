@@ -22,17 +22,21 @@ if (!connectionStr && process.env.DB_HOST) {
 
 const pool = new Pool({
     connectionString: connectionStr,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    connectionTimeoutMillis: 10000, // 10s timeout to establish connection
-    query_timeout: 10000,           // 10s timeout for individual queries
-    idleTimeoutMillis: 30000,       // 30s before closing idle clients
-    max: 20                         // Max 20 concurrent connections
+    // Always use SSL for Supabase/External DBs if host matches
+    ssl: (connectionStr?.includes('supabase.com') || process.env.NODE_ENV === 'production') 
+        ? { rejectUnauthorized: false } 
+        : false,
+    connectionTimeoutMillis: 10000, 
+    query_timeout: 10000,           
+    idleTimeoutMillis: 30000,       
+    max: 20                         
 });
 
-// DIAGNOSTIC LOG (SAFE): Log the host name to verify if we are on Railway or Supabase
+// STARTUP LOGS: Verify state on Railway
 if (connectionStr) {
     const host = connectionStr.split('@')[1]?.split(':')[0] || 'Unknown';
-    console.log(`[DB] Production Pool initialized for: ${host}`);
+    const hasSSL = !!pool.options.ssl;
+    console.log(`[DB] Connected to: ${host} | SSL: ${hasSSL} | NODE_ENV: ${process.env.NODE_ENV}`);
 }
 
 pool.on('error', (err) => {
