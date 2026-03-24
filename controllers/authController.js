@@ -102,7 +102,7 @@ const register = async (req, res) => {
 
                 await queryAll(
                     `UPDATE users SET name = $1, email = $2, phone = $3, programme = $4, section = $5, password_hash = $6, 
-                     biometric_enrolled = $7, face_enrolled = $8, biometric_template = $9, face_template = $10 WHERE id = $11`,
+                     biometric_enrolled = $7, face_enrolled = $8, biometric_template = $9, face_template = $10, is_registered = TRUE WHERE id = $11`,
                     [name, email || null, phone || null, programme || null, section || null, password_hash, 
                      biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, oldId]
                 );
@@ -172,7 +172,7 @@ const login = async (req, res) => {
 
         const db = await getDb();
         const result = await queryAll(
-            'SELECT id, roll_number, name, email, phone, programme, section, role, password_hash, biometric_enrolled, face_enrolled FROM users WHERE roll_number = $1',
+            'SELECT id, roll_number, name, email, phone, programme, section, role, password_hash, biometric_enrolled, face_enrolled, is_registered FROM users WHERE roll_number = $1',
             [roll_number.toUpperCase()]
         );
 
@@ -181,6 +181,11 @@ const login = async (req, res) => {
         }
 
         const user = result[0];
+
+        // VULN-015 FIX: Prevent login for unregistered/unclaimed accounts
+        if (!user.is_registered) {
+            return res.status(403).json({ error: 'Account not registered. Please complete registration first.' });
+        }
         const valid = await bcrypt.compare(password, user.password_hash);
         if (!valid) {
             return res.status(401).json({ error: 'Invalid roll number or password' });
