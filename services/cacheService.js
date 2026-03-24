@@ -5,129 +5,107 @@ let redisClient = null;
 let isRedisOffline = false;
 let isConnecting = false;
 let lastRetryTime = 0;
-const RETRY_INTERVAL = 5 * 60 * 1000; // 5 Minutes before trying Redis again
+const RETRY_INTERVAL = 10 * 60 * 1000; // 10 Minutes
 
-// Local memory fallback for when Redis is dead
+// Local memory fallback (Fastest)
 const localCache = new Map();
 const localExpiries = new Map();
 
-async function getCacheClient() {
-    const now = Date.now();
+/**
+ * Initializes Redis connection in the background.
+ * Never blocks the main thread.
+ */
+function initRedis() {
+    if (isConnecting || redisClient) return;
     
-    // 1. If we know Redis is offline, don't even try until the retry interval passes
-    if (isRedisOffline && (now - lastRetryTime < RETRY_INTERVAL)) {
-        return null;
-    }
+    isConnecting = true;
+    const client = createClient({ 
+        url: REDIS_URL,
+        socket: { connectTimeout: 2000 }
+    });
 
-    // 2. If we are already trying to connect, don't start another attempt
-    if (isConnecting) return null;
+    client.on('error', (err) => {
+        if (!isRedisOffline) console.warn('⚠️ [CACHE] Redis Offline:', err.message);
+        isRedisOffline = true;
+        isConnecting = false;
+        redisClient = null;
+    });
 
-    if (!redisClient) {
-        lastRetryTime = now;
-        isConnecting = true;
-        
-        console.log(`[📡 CACHE] Attempting Redis connection to ${REDIS_URL.substring(0, 15)}...`);
-        
-        const client = createClient({ 
-            url: REDIS_URL,
-            socket: {
-                connectTimeout: 2000 // Force 2s timeout at the socket level
-            }
-        });
-        
-        client.on('error', (err) => {
-            if (!isRedisOffline) console.warn('⚠️ [CACHE] Redis Error:', err.message);
-            isRedisOffline = true;
-            isConnecting = false;
-            redisClient = null;
-        });
-        
-        try {
-            // Force a hard timeout on the connect promise
-            await Promise.race([
-                client.connect(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Connect Timeout')), 2500))
-            ]);
-            console.log('✅ [CACHE] Connected to Redis');
+    client.connect()
+        .then(() => {
+            console.log('✅ [CACHE] Redis Connected (Background)');
             redisClient = client;
             isRedisOffline = false;
             isConnecting = false;
-        } catch (e) {
-            if (!isRedisOffline) console.warn(`⚠️ [CACHE] Redis Unavailable (${e.message}). Using Local Fallback.`);
+        })
+        .catch((e) => {
             isRedisOffline = true;
             isConnecting = false;
             redisClient = null;
-            // Ensure client is closed
-            try { await client.disconnect(); } catch (ignore) {}
-        }
-    }
-    return redisClient;
+        });
 }
 
-/**
- * Gets a value from cache or executes fetch function and caches result
- * @param {string} key Cache key
- * @param {number} ttl Expiration time in seconds
- * @param {Function} fetchFn Async function to fetch data if not in cache
- */
+// Start connection attempt immediately (non-blocking)
+initRedis();
+
 async function getOrSetCache(key, ttl, fetchFn) {
-    const client = await getCacheClient();
-    
-    // 1. TRY REDIS (Primary)
-    if (client) {
-        try {
-            const cached = await client.get(key);
-            if (cached) return JSON.parse(cached);
-
-            const freshData = await fetchFn();
-            if (freshData !== undefined && freshData !== null) {
-                await client.setEx(key, ttl, JSON.stringify(freshData));
-            }
-            return freshData;
-        } catch (e) {
-            console.error('Redis operation failed:', e.message);
-            isRedisOffline = true; // Trip the circuit
-        }
-    }
-
-    // 2. TRY LOCAL MEMORY (Permanent Fallback)
     const now = Date.now();
-    const expiry = localExpiries.get(key);
-    
-    if (expiry && now < expiry) {
+
+    // 1. TRY LOCAL MEMORY (Instant)
+    const localExpiry = localExpiries.get(key);
+    if (localExpiry && now < localExpiry) {
         const cached = localCache.get(key);
         if (cached) return JSON.parse(cached);
     }
 
-    // Fetch and store locally
+    // 2. FETCH FRESH DATA
     const freshData = await fetchFn();
     if (freshData !== undefined && freshData !== null) {
-        localCache.set(key, JSON.stringify(freshData));
+        const stringData = JSON.stringify(freshData);
+        
+        // Update Local
+        localCache.set(key, stringData);
         localExpiries.set(key, now + (ttl * 1000));
+
+        // 3. SYNC TO REDIS (Background - Non-blocking)
+        if (redisClient && !isRedisOffline) {
+            redisClient.setEx(key, ttl, stringData).catch(e => {
+                console.warn('[CACHE] Redis Sync Failed:', e.message);
+                isRedisOffline = true;
+                lastRetryTime = Date.now();
+                redisClient = null;
+            });
+        } else if (now - lastRetryTime > RETRY_INTERVAL) {
+            initRedis(); // Try to reconnect in background
+        }
     }
     return freshData;
 }
 
 async function invalidateCache(keyPattern) {
-    const client = await getCacheClient();
-    
-    // Invalidate Redis
-    if (client) {
-        try {
-            const keys = await client.keys(keyPattern);
-            if (keys.length > 0) await client.del(keys);
-        } catch (e) {
-            console.error('Redis invalidation failed:', e.message);
-        }
+    // Clear Local
+    if (keyPattern.includes('*')) {
+        // Simple wipe for patterns
+        localCache.clear();
+        localExpiries.clear();
+    } else {
+        localCache.delete(keyPattern);
+        localExpiries.delete(keyPattern);
     }
 
-    // Invalidate Local (Clear all to be safe, or regex match keys)
-    localCache.clear();
-    localExpiries.clear();
+    // Invalidate Redis (Background)
+    if (redisClient && !isRedisOffline) {
+        try {
+            const keys = await redisClient.keys(keyPattern);
+            if (keys.length > 0) redisClient.del(keys).catch(() => {});
+        } catch (e) {
+            isRedisOffline = true;
+            lastRetryTime = Date.now();
+        }
+    }
 }
 
 module.exports = {
-    getCacheClient,
     getOrSetCache,
     invalidateCache
 };

@@ -3,7 +3,6 @@
 const cache = require('./cacheService');
 
 module.exports = {
-    getRedisClient: cache.getCacheClient,
     getCachedData: cache.getOrSetCache,
     invalidateCache: cache.invalidateCache
 };
