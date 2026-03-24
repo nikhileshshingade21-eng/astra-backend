@@ -49,8 +49,18 @@ async function seed() {
                 [code, name, faculty, room, start, end, prog, sec]
             );
         }
+
+        // 6. Ensure in institutional registry (verified_students)
+        await pool.query("INSERT INTO verified_students (roll_number) VALUES ($1) ON CONFLICT DO NOTHING", ['25N81A6258']);
+        console.log('\nInstitutional Verification: Roll 25N81A6258 added to registry.');
+
+        // 7. Reset Password to 'nikhilesh' for testing
+        const bcrypt = require('bcryptjs');
+        const hash = await bcrypt.hash('nikhilesh', 10);
+        await pool.query("UPDATE users SET password_hash = $1 WHERE roll_number = '25N81A6258'", [hash]);
+        console.log('Password reset to: nikhilesh');
         
-        // 5. Verify
+        // 8. Verify
         const verify = await pool.query("SELECT name, programme, section FROM classes WHERE day = 'Tuesday' AND section = $1", [sec]);
         console.log(`\nVERIFICATION: ${verify.rows.length} Tuesday classes seeded:`);
         verify.rows.forEach(c => console.log(`  ✅ ${c.name} (prog=${c.programme}, sec=${c.section})`));
