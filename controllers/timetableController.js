@@ -11,9 +11,7 @@ const getTodayClasses = async (req, res) => {
 
         console.log(`Fetching classes for: ${targetDay}, Programme: ${programme}, Section: ${section}`);
 
-        // 🚀 REDIS CACHE STRATEGY: 
-        // Cache the raw schedule for 24 hours based on Day + Programme + Section
-        const cacheKey = `timetable:${targetDay}:${programme}:${section}`;
+        const shouldRefresh = req.query.refresh === 'true';
         
         const fetchScheduleFromDb = async () => {
              let result;
@@ -36,7 +34,17 @@ const getTodayClasses = async (req, res) => {
         };
 
         // Get data (from cache or DB)
-        const result = await getCachedData(cacheKey, 86400, fetchScheduleFromDb); // 24h caching
+        // If refresh=true, we skip getCachedData and fetch directly, then manually update cache if needed.
+        // Or simpler: just reduce TTL to 3600 and depend on the bridge to handle it if I add a 'force' param to it.
+        // For now, I'll just reduce the TTL and if refresh=true, I'll invalidate the key first.
+        
+        if (shouldRefresh) {
+            const { invalidateCache } = require('../services/redisService');
+            await invalidateCache(cacheKey);
+            console.log(`Cache invalidated for: ${cacheKey}`);
+        }
+
+        const result = await getCachedData(cacheKey, 3600, fetchScheduleFromDb); // Reduced to 1h caching
         
         let classes = [];
         if (result && result.length > 0) {
