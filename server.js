@@ -127,29 +127,29 @@ app.use((err, req, res, next) => {
 
 // Start
 async function start() {
-    await getDb(); // Initialize database
-    await scheduleV3Jobs(); // Start V3 Autonomous Workflows
-    
     const server = http.createServer(app);
     socketService.init(server);
 
-    server.listen(PORT, '0.0.0.0', () => {
+    const PORT = process.env.PORT || 3000;
+    
+    server.listen(PORT, '0.0.0.0', async () => {
         console.log(`\n  ╔══════════════════════════════════════╗`);
         console.log(`  ║   ASTRA Backend Server v1.0.0        ║`);
         console.log(`  ║   Running on http://0.0.0.0:${PORT}     ║`);
         console.log(`  ╚══════════════════════════════════════╝\n`);
 
-        // Show local IP for phone connection
-        const os = require('os');
-        const nets = os.networkInterfaces();
-        for (const name of Object.keys(nets)) {
-            for (const net of nets[name]) {
-                if (net.family === 'IPv4' && !net.internal) {
-                    console.log(`  📱 Connect your phone to: http://${net.address}:${PORT}`);
-                }
-            }
+        try {
+            console.log('[START] Initializing Database...');
+            await getDb(); 
+            console.log('[START] Database Connected.');
+            
+            console.log('[START] Starting Background Jobs...');
+            await scheduleV3Jobs(); 
+            console.log('[START] Background Jobs Ready.');
+        } catch (err) {
+            console.error('[CRITICAL] Startup Sequence Failed:', err.message);
+            // Don't exit, let health check show the error
         }
-        console.log('');
     });
 }
 
