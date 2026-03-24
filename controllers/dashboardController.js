@@ -138,25 +138,8 @@ const getDashboardStats = async (req, res) => {
             });
         }
 
-        // --- NEW: ASTRA V2 AGGREGATION & AI RISK SCORING ---
-        let predictedMarks = null;
-        let driftAnalysis = null;
-        try {
-            // Mock historical marks for now or fetch from DB if available
-            const historicalMarks = [75, 82, 78, 85, 80];
-            const recentAttArray = percentage > 0 ? [percentage/100, percentage/100, percentage/100] : [0,0,0];
-            
-            const [prediction, drift] = await Promise.all([
-                aiService.getPredictedMarks(userId, historicalMarks, recentAttArray),
-                aiService.getAttendanceDrift(userId, historicalMarks, recentAttArray)
-            ]);
-            predictedMarks = prediction;
-            driftAnalysis = drift;
-        } catch (e) {
-            console.error('Failed to aggregate AI stats for dashboard:', e);
-        }
-
-        res.json({
+        // --- Role-Based Data Aggregation ---
+        let responseData = {
             total_attended: totalAttended,
             present_count: presentCount,
             late_count: lateCount,
@@ -168,13 +151,52 @@ const getDashboardStats = async (req, res) => {
             subjects,
             today_count: todayCount,
             recent,
-            daily_stats: dailyStats,
-            // ASTRA V2 Metrics
-            predictive_insights: {
+            daily_stats: dailyStats
+        };
+
+        if (req.user.role === 'admin') {
+            const threatLogs = await queryAll(`
+                SELECT t.event_type as type, t.severity, t.details, t.created_at as time, u.name as user_name
+                FROM threat_logs t
+                LEFT JOIN users u ON t.user_id = u.id
+                ORDER BY t.created_at DESC LIMIT 5
+            `);
+            const sysStats = await queryAll(`
+                SELECT 
+                    (SELECT COUNT(*) FROM users) as total_users,
+                    (SELECT COUNT(*) FROM attendance WHERE date = $1) as today_att,
+                    (SELECT COUNT(*) FROM campus_zones) as zones
+            `, [today]);
+
+            responseData.admin_data = {
+                security_feed: threatLogs || [],
+                system_stats: sysStats[0] || {}
+            };
+        }
+
+        // ASTRA V2 Predictive Insights (Only for students)
+        if (req.user.role === 'student') {
+            let predictedMarks = null;
+            let driftAnalysis = null;
+            try {
+                const historicalMarks = [75, 82, 78, 85, 80];
+                const recentAttArray = percentage > 0 ? [percentage/100, percentage/100, percentage/100] : [0,0,0];
+                const [prediction, drift] = await Promise.all([
+                    aiService.getPredictedMarks(userId, historicalMarks, recentAttArray),
+                    aiService.getAttendanceDrift(userId, historicalMarks, recentAttArray)
+                ]);
+                predictedMarks = prediction;
+                driftAnalysis = drift;
+            } catch (e) {
+                console.error('AI aggregation error:', e);
+            }
+            responseData.predictive_insights = {
                 predicted_marks: predictedMarks,
                 drift_analysis: driftAnalysis
-            }
-        });
+            };
+        }
+
+        res.json(responseData);
     } catch (err) {
         console.error('Dashboard error:', err);
         res.status(500).json({ error: 'Failed to fetch dashboard' });
