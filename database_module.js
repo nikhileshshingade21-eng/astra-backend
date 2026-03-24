@@ -14,6 +14,12 @@ const pool = new Pool({
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
+// DIAGNOSTIC LOG (SAFE): Log the host name to verify if we are on Railway or Supabase
+if (connectionStr) {
+    const host = connectionStr.split('@')[1]?.split(':')[0] || 'Unknown';
+    console.log(`[DB] Connecting to host: ${host}`);
+}
+
 // Test connection on boot
 pool.on('connect', () => {
     // Connection established
