@@ -31,10 +31,37 @@ const addZone = async (req, res) => {
 
 const listZones = async (req, res) => {
     try {
-        const result = await queryAll('SELECT id, name, lat, lng, radius_m FROM campus_zones');
+        const result = await queryAll('SELECT id, name, lat, lng, radius_m, active FROM campus_zones ORDER BY id ASC');
         res.json({ zones: result || [] });
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch zones' });
+    }
+};
+
+const toggleZone = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { active } = req.body;
+        if (id === undefined || active === undefined) {
+            return res.status(400).json({ error: 'ID and active status are required' });
+        }
+        await queryAll('UPDATE campus_zones SET active = $1 WHERE id = $2', [active, id]);
+        res.json({ success: true, message: `Zone ${id} status updated to ${active}` });
+    } catch (err) {
+        console.error('Toggle zone error:', err.message);
+        res.status(500).json({ error: 'Failed to update zone status' });
+    }
+};
+
+const deleteZone = async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!id) return res.status(400).json({ error: 'ID is required' });
+        await queryAll('DELETE FROM campus_zones WHERE id = $1', [id]);
+        res.json({ success: true, message: `Zone ${id} deleted` });
+    } catch (err) {
+        console.error('Delete zone error:', err.message);
+        res.status(500).json({ error: 'Failed to delete zone' });
     }
 };
 
@@ -372,5 +399,7 @@ module.exports = {
     getThreatLogs,
     getBannedUsers,
     unbanUser,
-    getAiAnalytics
+    getAiAnalytics,
+    toggleZone,
+    deleteZone
 };

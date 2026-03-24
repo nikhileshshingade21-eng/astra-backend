@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { authMiddleware } = require('../middleware');
-const { addZone, listZones, listUsers, getStats, getTracker, pingClass, uploadStudentData, getThreatLogs, getBannedUsers, unbanUser } = require('../controllers/adminController');
+const { addZone, listZones, listUsers, getStats, getTracker, pingClass, uploadStudentData, getThreatLogs, getBannedUsers, unbanUser, toggleZone, deleteZone } = require('../controllers/adminController');
 
 // Multer Configuration for Secure Uploads (Phase 1)
 const storage = multer.memoryStorage();
@@ -41,6 +41,12 @@ router.post('/zone', authMiddleware, adminOnly, addZone);
 
 // GET /api/admin/zones — List all campus zones
 router.get('/zones', authMiddleware, adminOnly, listZones);
+
+// PUT /api/admin/zones/:id/toggle — Toggle zone activation
+router.put('/zones/:id/toggle', authMiddleware, adminOnly, toggleZone);
+
+// DELETE /api/admin/zones/:id — Delete a zone
+router.delete('/zones/:id', authMiddleware, adminOnly, deleteZone);
 
 // GET /api/admin/users — List all users
 router.get('/users', authMiddleware, adminOnly, listUsers);
