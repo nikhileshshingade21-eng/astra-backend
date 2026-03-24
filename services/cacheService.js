@@ -3,6 +3,7 @@ const { createClient } = require('redis');
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 let redisClient = null;
 let isRedisOffline = false;
+let isConnecting = false;
 let lastRetryTime = 0;
 const RETRY_INTERVAL = 5 * 60 * 1000; // 5 Minutes before trying Redis again
 
@@ -13,38 +14,51 @@ const localExpiries = new Map();
 async function getCacheClient() {
     const now = Date.now();
     
-    // If we know Redis is offline, don't even try until the retry interval passes
+    // 1. If we know Redis is offline, don't even try until the retry interval passes
     if (isRedisOffline && (now - lastRetryTime < RETRY_INTERVAL)) {
         return null;
     }
 
+    // 2. If we are already trying to connect, don't start another attempt
+    if (isConnecting) return null;
+
     if (!redisClient) {
         lastRetryTime = now;
-        redisClient = createClient({ 
+        isConnecting = true;
+        
+        console.log(`[📡 CACHE] Attempting Redis connection to ${REDIS_URL.substring(0, 15)}...`);
+        
+        const client = createClient({ 
             url: REDIS_URL,
             socket: {
                 connectTimeout: 2000 // Force 2s timeout at the socket level
             }
         });
         
-        redisClient.on('error', (err) => {
-            console.warn('⚠️ Redis Error:', err.message);
+        client.on('error', (err) => {
+            if (!isRedisOffline) console.warn('⚠️ [CACHE] Redis Error:', err.message);
             isRedisOffline = true;
+            isConnecting = false;
             redisClient = null;
         });
         
         try {
             // Force a hard timeout on the connect promise
             await Promise.race([
-                redisClient.connect(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Connect Timeout')), 2000))
+                client.connect(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Connect Timeout')), 2500))
             ]);
-            console.log('✅ Connected to Redis cache');
+            console.log('✅ [CACHE] Connected to Redis');
+            redisClient = client;
             isRedisOffline = false;
+            isConnecting = false;
         } catch (e) {
-            console.warn(`⚠️ Redis Offline (${e.message}). Switching to Local Memory Cache.`);
+            if (!isRedisOffline) console.warn(`⚠️ [CACHE] Redis Unavailable (${e.message}). Using Local Fallback.`);
             isRedisOffline = true;
+            isConnecting = false;
             redisClient = null;
+            // Ensure client is closed
+            try { await client.disconnect(); } catch (ignore) {}
         }
     }
     return redisClient;
