@@ -34,11 +34,15 @@ async function getCacheClient() {
         });
         
         try {
-            await redisClient.connect();
+            // Force a hard timeout on the connect promise
+            await Promise.race([
+                redisClient.connect(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Connect Timeout')), 2000))
+            ]);
             console.log('✅ Connected to Redis cache');
             isRedisOffline = false;
         } catch (e) {
-            console.warn('⚠️ Redis Offline. Switching to Local Memory Cache.');
+            console.warn(`⚠️ Redis Offline (${e.message}). Switching to Local Memory Cache.`);
             isRedisOffline = true;
             redisClient = null;
         }
