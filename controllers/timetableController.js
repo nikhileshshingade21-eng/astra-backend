@@ -6,8 +6,10 @@ const getTodayClasses = async (req, res) => {
         const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const targetDay = req.query.day || days[new Date().getDay()];
         const todayDate = new Date().toISOString().split('T')[0];
-        const programme = req.user.programme || 'all';
-        const section = req.user.section || 'all';
+        
+        // 🛡️ ASTRA V2: Prioritize query overrides for mobile app resilience
+        const programme = req.query.programme || req.user.programme || 'all';
+        const section = req.query.section || req.user.section || 'all';
 
         console.log(`Fetching classes for: ${targetDay}, Programme: ${programme}, Section: ${section}`);
 
@@ -45,7 +47,13 @@ const getTodayClasses = async (req, res) => {
             console.log(`Cache invalidated for: ${cacheKey}`);
         }
 
-        const result = await getCachedData(cacheKey, 3600, fetchScheduleFromDb); // Reduced to 1h caching
+        const result = await getCachedData(cacheKey, 3600, fetchScheduleFromDb);
+        
+        // 🧪 CACHE HEALING: If results are empty, don't keep them cached for 1h (likely wrong day or transient DB error)
+        if (!result || result.length === 0) {
+            const { invalidateCache } = require('../services/redisService');
+            await invalidateCache(cacheKey); // Wipe the empty cache entry
+        }
         
         let classes = [];
         if (result && result.length > 0) {

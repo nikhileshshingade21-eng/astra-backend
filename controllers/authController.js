@@ -34,7 +34,8 @@ const register = async (req, res) => {
         const { 
             roll_number, name, email, phone, programme, section, password, 
             biometric_enrolled, face_enrolled,
-            biometric_template, face_template 
+            biometric_template, face_template,
+            device_id
         } = req.body;
 
         if (!roll_number || !name || !password) {
@@ -67,7 +68,7 @@ const register = async (req, res) => {
         }
 
         // Check if roll number already exists
-        const existing = await queryAll('SELECT id, password_hash FROM users WHERE roll_number = $1', [roll_number.toUpperCase()]);
+        const existing = await queryAll('SELECT id, password_hash, is_registered FROM users WHERE roll_number = $1', [roll_number.toUpperCase()]);
 
         // SEC-002 FIX: Role is always 'student' for self-registration.
         // Admin/faculty roles must be assigned by an existing admin.
@@ -84,7 +85,7 @@ const register = async (req, res) => {
             const isDefaultSeeded = bcrypt.compareSync('123', oldHash) || 
                                    bcrypt.compareSync('password123', oldHash);
 
-            if (isDefaultSeeded) {
+            if (isDefaultSeeded || !existingUser.is_registered) {
                 // Claim pre-seeded account: Update it with all fields from registration
                 const password_hash = await bcrypt.hash(password, 10);
                 
@@ -128,10 +129,10 @@ const register = async (req, res) => {
 
             const insertResult = await queryAll(
                 `INSERT INTO users (roll_number, name, email, phone, programme, section, role, password_hash, 
-                 biometric_enrolled, face_enrolled, biometric_template, face_template) 
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+                 biometric_enrolled, face_enrolled, biometric_template, face_template, is_registered, device_id) 
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
                 [roll_number.toUpperCase(), name, email || null, phone || null, programme || null, section || null, 
-                 userRole, password_hash, biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace]
+                 userRole, password_hash, biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, true, device_id || null]
             );
 
             if (insertResult && insertResult.length > 0) {
