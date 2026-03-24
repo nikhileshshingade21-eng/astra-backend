@@ -6,14 +6,14 @@ const { Resend } = require('resend');
  * This bypasses Railway SMTP port blocking.
  */
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 const sendFeedbackEmail = async (userId, userRoll, type, message) => {
     try {
         if (!process.env.RESEND_API_KEY) {
             console.warn('[MAIL] Skipping email: RESEND_API_KEY is not set.');
             return false;
         }
+
+        const resend = new Resend(process.env.RESEND_API_KEY);
 
         const { data, error } = await resend.emails.send({
             from: 'ASTRA Beta <onboarding@resend.dev>',
