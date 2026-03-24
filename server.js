@@ -101,6 +101,16 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', server: 'ASTRA Backend', version: '1.0.0', time: new Date().toISOString() });
 });
 
+// Cache clear (TEMPORARY — clears stale timetable cache)
+app.get('/api/clear-cache', (req, res) => {
+    const { invalidateCache } = require('./services/cacheService');
+    invalidateCache('*').then(() => {
+        res.json({ success: true, message: 'All caches cleared' });
+    }).catch(err => {
+        res.status(500).json({ error: err.message });
+    });
+});
+
 // Feedback System (Phase 4)
 app.post('/api/feedback', protect, submitFeedback);
 app.get('/api/feedback', protect, getAllFeedback);
