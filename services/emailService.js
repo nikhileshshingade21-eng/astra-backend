@@ -17,7 +17,7 @@ const sendFeedbackEmail = async (userId, userRoll, type, message) => {
 
         const { data, error } = await resend.emails.send({
             from: 'ASTRA Beta <onboarding@resend.dev>',
-            to: 'nikhileshshingade341@gmail.com',
+            to: 'nikhileshshingade21@gmail.com',
             subject: `[${type.toUpperCase()}] New ASTRA Feedback from ${userRoll}`,
             html: `
                 <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
