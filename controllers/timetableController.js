@@ -36,7 +36,7 @@ const getTodayClasses = async (req, res) => {
         };
 
         // Get data (from cache or DB)
-        const result = await getCachedData(cacheKey, fetchScheduleFromDb, 86400); // 24h caching
+        const result = await getCachedData(cacheKey, 86400, fetchScheduleFromDb); // 24h caching
         
         let classes = [];
         if (result && result.length > 0) {
@@ -62,7 +62,7 @@ const getTodayClasses = async (req, res) => {
         res.json({ day: targetDay, date: todayDate, classes });
     } catch (err) {
         console.error('Timetable error:', err);
-        res.status(500).json({ error: 'Failed to fetch timetable', details: err.message, stack: err.stack?.split('\n')[1] });
+        res.status(500).json({ error: 'Failed to fetch timetable' });
     }
 };
 
