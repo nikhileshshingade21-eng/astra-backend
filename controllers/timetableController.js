@@ -11,6 +11,7 @@ const getTodayClasses = async (req, res) => {
 
         console.log(`Fetching classes for: ${targetDay}, Programme: ${programme}, Section: ${section}`);
 
+        const cacheKey = `timetable:${targetDay}:${programme}:${section}`;
         const shouldRefresh = req.query.refresh === 'true';
         
         const fetchScheduleFromDb = async () => {
