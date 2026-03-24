@@ -4,9 +4,16 @@ const { Pool } = require('pg');
 // This will normally pick up DATABASE_URL or component env vars
 let connectionStr = process.env.DATABASE_URL;
 
-if (!connectionStr && process.env.DB_HOST && process.env.DB_USER) {
-    // Construct connection string from parts
-    connectionStr = `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME}`;
+// Robust Validation: If DATABASE_URL is mangled (e.g. truncated by a copy-paste error), ignore it
+if (connectionStr && (connectionStr.length < 30 || !connectionStr.includes('@'))) {
+    console.warn('[DB] DATABASE_URL looks mangled, falling back to component variables.');
+    connectionStr = null;
+}
+
+if (!connectionStr && process.env.DB_HOST) {
+    // Construct connection string from stable parts
+    const { DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME } = process.env;
+    connectionStr = `postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT || 5432}/${DB_NAME}`;
 }
 
 const pool = new Pool({
