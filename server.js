@@ -81,11 +81,11 @@ app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok', 
         server: 'ASTRA Backend', 
-        version: '1.0.1', 
+        version: '1.0.2', 
         time: new Date().toISOString(),
         email_service: {
-            user_set: !!process.env.EMAIL_USER,
-            pass_set: !!process.env.EMAIL_PASS
+            method: 'Resend API',
+            resend_set: !!process.env.RESEND_API_KEY
         }
     });
 });
