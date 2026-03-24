@@ -41,7 +41,8 @@ async function queryAll(sql, params = []) {
             client.release();
         }
     } catch (err) {
-        console.error('[DB] Query Error:', err.message, '\nSQL:', sql, '\nParams:', params);
+        // HIGH-05 FIX: Never log params (may contain passwords, biometric data)
+        console.error('[DB] Query Error:', err.message, '\nSQL:', sql);
         throw err;
     }
 }

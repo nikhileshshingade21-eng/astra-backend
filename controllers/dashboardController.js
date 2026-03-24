@@ -66,6 +66,39 @@ const getDashboardStats = async (req, res) => {
         const todayResult = await queryAll('SELECT COUNT(*) as count FROM attendance WHERE user_id = $1 AND date = $2', [userId, today]);
         const todayCount = todayResult.length ? parseInt(todayResult[0].count) : 0;
 
+        // --- ASTRA V3: GAMIFICATION AND SUBJECT BREAKDOWN ---
+        const points = (presentCount * 50) + (lateCount * 20);
+        
+        // Simple rank calculation (comparing present_count with others)
+        const rankResult = await queryAll(
+            'SELECT COUNT(*) as rank FROM (SELECT user_id, COUNT(*) as c FROM attendance WHERE status = \'present\' GROUP BY user_id) as leaderboard WHERE leaderboard.c > $1',
+            [presentCount]
+        );
+        const rank = (rankResult.length ? parseInt(rankResult[0].rank) : 0) + 1;
+
+        // Subject breakdown
+        const subjectResult = await queryAll(
+            `SELECT c.code, c.name, 
+              COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present,
+              COUNT(a.id) as total
+             FROM classes c
+             LEFT JOIN attendance a ON c.id = a.class_id AND a.user_id = $1
+             WHERE c.programme = $2 AND c.section = $3
+             GROUP BY c.id, c.code, c.name`,
+            [userId, req.user.programme || 'all', req.user.section || 'all']
+        );
+        
+        const subjects = subjectResult.map((s, i) => {
+            const pct = s.total > 0 ? Math.round((parseInt(s.present) / parseInt(s.total)) * 100) : 0;
+            const colors = ['#0ea5e9', '#6366f1', '#10b981', '#3b82f6', '#f59e0b'];
+            return {
+                name: s.name,
+                code: s.code,
+                pct: pct,
+                color: colors[i % colors.length]
+            };
+        });
+
         // --- NEW: ASTRA V2 AGGREGATION & AI RISK SCORING ---
         let predictedMarks = null;
         let driftAnalysis = null;
@@ -91,6 +124,9 @@ const getDashboardStats = async (req, res) => {
             total_classes: totalClasses,
             percentage,
             streak,
+            points,
+            rank,
+            subjects,
             today_count: todayCount,
             recent,
             // ASTRA V2 Metrics

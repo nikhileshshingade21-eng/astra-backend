@@ -38,7 +38,7 @@ exports.createAnnouncement = async (req, res) => {
         const userRole = req.user.role;
 
         // Security Check
-        if (userRole !== 'teacher' && userRole !== 'admin') {
+        if (userRole !== 'faculty' && userRole !== 'admin') {
             return res.status(403).json({ success: false, message: 'Only faculty can post announcements' });
         }
 

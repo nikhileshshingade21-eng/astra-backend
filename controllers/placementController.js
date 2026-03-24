@@ -35,11 +35,11 @@ const getJobs = async (req, res) => {
 const getRecommendations = async (req, res) => {
     try {
         const studentId = req.user.id;
-        
+
         // 1. Fetch student's academic profile (Marks)
         const marksRes = await queryAll('SELECT subject, marks FROM marks WHERE user_id = $1', [studentId]);
         const marks = (marksRes || []).map(m => m.marks);
-        
+
         // Calculate very rough CGPA proxy
         const avgMarks = marks.length ? marks.reduce((a, b) => a + b, 0) / marks.length : 0;
         const studentCgpa = (avgMarks / 10).toFixed(1);

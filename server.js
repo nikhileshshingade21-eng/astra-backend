@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { getDb, queryAll } = require('./database_module.js');
 
 const authRoutes = require('./routes/auth');
@@ -23,6 +24,12 @@ const http = require('http');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// DEBUG LOGGER: Log all incoming hits to verify mobile connection
+app.use((req, res, next) => {
+    console.log(`[📡 INCOMING] ${req.method} ${req.url} from ${req.ip}`);
+    next();
+});
+
 // VULN-014 FIX: Strict Security headers via helmet
 app.use(helmet({
     contentSecurityPolicy: {
@@ -31,7 +38,7 @@ app.use(helmet({
             scriptSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
             imgSrc: ["'self'", "data:", "blob:"],
-            connectSrc: ["'self'", process.env.CORS_ORIGINS || "http://localhost:3000", "http://localhost:8081"],
+            connectSrc: ["'self'", ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ["http://localhost:3000"]), "http://localhost:8081"],
         },
     },
     hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
@@ -53,7 +60,11 @@ app.use(cors({
     credentials: true
 }));
 
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '5mb' }));
+
+// HIGH-02 FIX: Rate limiting
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many login attempts. Try again in 15 minutes.' } });
+const aiLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 30, message: { error: 'AI rate limit reached. Please wait.' } });
 
 // VULN-012 FIX: HTTPS redirect in production
 if (process.env.NODE_ENV === 'production') {
@@ -72,13 +83,13 @@ app.use((req, res, next) => {
 });
 
 // Routes
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/timetable', timetableRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/ai', aiRoutes);
+app.use('/api/ai', aiLimiter, aiRoutes);
 app.use('/api/marks', marksRoutes);
 app.use('/api/leaves', leavesRoutes);
 app.use('/api/marketplace', require('./routes/marketplace'));

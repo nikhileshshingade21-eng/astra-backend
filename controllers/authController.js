@@ -149,7 +149,7 @@ const register = async (req, res) => {
 
         // Generate token
         // VULN-007 FIX: Reduced token expiry from 30d to 2h
-        const token = jwt.sign({ userId: userId, role: userRole }, JWT_SECRET, { expiresIn: '7d' });
+        const token = jwt.sign({ userId: userId, role: userRole }, JWT_SECRET, { expiresIn: '2h' });
 
         res.json({
             success: true,
@@ -157,8 +157,8 @@ const register = async (req, res) => {
             user: { id: userId, roll_number: roll_number.toUpperCase(), name, email, phone, programme, section, role: userRole, biometric_enrolled: !!biometric_enrolled, face_enrolled: !!face_enrolled }
         });
     } catch (err) {
-        console.error('Register error:', err);
-        res.status(500).json({ error: `Registration failed: ${err.message}` });
+        console.error('Register error:', err.message);
+        res.status(500).json({ error: 'Registration failed. Please try again.' });
     }
 };
 
@@ -187,7 +187,7 @@ const login = async (req, res) => {
         }
 
         // VULN-007 FIX: Reduced token expiry from 30d to 2h
-        const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+        const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '2h' });
 
         // Log login notification
         await queryAll(
@@ -195,10 +195,11 @@ const login = async (req, res) => {
             [user.id, 'Login Successful', `Authenticated at ${new Date().toLocaleTimeString()}`, 'info']
         );
 
-        res.json({ success: true, token, user: { ...user, password_hash: undefined } });
+        const { password_hash, ...safeUser } = user;
+        res.json({ success: true, token, user: safeUser });
     } catch (err) {
-        console.error('Login error:', err);
-        res.status(500).json({ error: `Login failed: ${err.message}` });
+        console.error('Login error:', err.message);
+        res.status(500).json({ error: 'Login failed. Please try again.' });
     }
 };
 

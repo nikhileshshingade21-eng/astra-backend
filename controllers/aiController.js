@@ -106,7 +106,7 @@ const verifyIdentity = async (req, res) => {
 };
 
 const chat = async (req, res) => {
-    console.log(`[AI CHAT] Request from user ${req.user.id}: ${req.body.message}`);
+    // HIGH-04 FIX: Don't log user message content
     try {
         const { message } = req.body;
         if (!message) {

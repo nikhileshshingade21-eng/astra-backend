@@ -152,10 +152,10 @@ const mark = async (req, res) => {
                 const classEndDate = new Date(now);
                 classEndDate.setHours(endH, endM, 0, 0);
 
-                // Last 10 minutes logic
+                // Last 10 minutes logic (Enforce only in production)
                 const tenMinsBeforeEnd = new Date(classEndDate.getTime() - 10 * 60000);
                 
-                if (now < tenMinsBeforeEnd) {
+                if (process.env.NODE_ENV === 'production' && now < tenMinsBeforeEnd) {
                     return res.status(403).json({
                         error: 'TIME PROTOCOL BREACH',
                         message: `Attendance marking for ${className} is only permitted in the FINAL 10 MINUTES of the session. Protocol opens at ${tenMinsBeforeEnd.toLocaleTimeString()}.`
@@ -197,7 +197,7 @@ const getHistory = async (req, res) => {
     try {
         const db = await getDb();
         const result = await queryAll(
-            `SELECT a.id, a.date, a.status, a.gps_lat, a.gps_lng, a.distance_m, a.method, a.marked_at,
+            `SELECT a.id, a.date, a.status, a.distance_m, a.method, a.marked_at,
               c.code, c.name as class_name
        FROM attendance a
        LEFT JOIN classes c ON a.class_id = c.id

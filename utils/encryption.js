@@ -2,7 +2,8 @@ const crypto = require('crypto');
 
 let rawKey = (process.env.ENCRYPTION_KEY || "").replace(/['"\s]+/g, "");
 if (rawKey.length === 0) {
-    rawKey = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    console.error('FATAL: ENCRYPTION_KEY environment variable is not set.');
+    process.exit(1);
 }
 if (rawKey.length < 64) {
     rawKey = rawKey.padEnd(64, '0');
