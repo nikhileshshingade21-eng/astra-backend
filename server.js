@@ -78,7 +78,16 @@ app.use('/api/placements', require('./routes/placements'));
 app.use('/api/ai/approvals', require('./routes/aiApprovals'));
 
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', server: 'ASTRA Backend', version: '1.0.0', time: new Date().toISOString() });
+    res.json({ 
+        status: 'ok', 
+        server: 'ASTRA Backend', 
+        version: '1.0.1', 
+        time: new Date().toISOString(),
+        email_service: {
+            user_set: !!process.env.EMAIL_USER,
+            pass_set: !!process.env.EMAIL_PASS
+        }
+    });
 });
 
 app.post('/api/feedback', protect, submitFeedback);

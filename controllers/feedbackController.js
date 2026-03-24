@@ -1,4 +1,5 @@
 const { queryAll } = require('../database_module.js');
+const { sendFeedbackEmail } = require('../services/emailService');
 
 const submitFeedback = async (req, res) => {
     try {
@@ -18,7 +19,11 @@ const submitFeedback = async (req, res) => {
             [userId, type, message]
         );
 
-        res.json({ success: true, message: 'Feedback submitted successfully. Thank you!' });
+        // Async dispatch for email forwarding (don't block the user response)
+        const userRoll = req.user.roll_number || 'UNKNOWN';
+        sendFeedbackEmail(userId, userRoll, type, message).catch(console.error);
+
+        res.json({ success: true, message: 'Feedback submitted successfully. Forwarded to Admin Gmail.' });
     } catch (err) {
         console.error('Feedback submit error:', err);
         res.status(500).json({ error: 'Failed to submit feedback' });
