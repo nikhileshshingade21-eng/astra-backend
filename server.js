@@ -81,7 +81,7 @@ app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok', 
         server: 'ASTRA Backend', 
-        version: '1.0.2', 
+        version: '1.0.3', 
         time: new Date().toISOString(),
         email_service: {
             method: 'Resend API',
