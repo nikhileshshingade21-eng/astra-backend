@@ -251,9 +251,14 @@ const getLiveAttendance = async (req, res) => {
             }
         }
 
+        // Get total expected students in this group
+        const totalEns = await queryAll('SELECT COUNT(*) as count FROM users WHERE role = "student" AND programme = $1 AND section = $2', [prog, sec]);
+        const totalEnrolled = totalEns.length ? parseInt(totalEns[0].count) : 0;
+
         res.json({
             classId,
             count,
+            total_enrolled: totalEnrolled,
             students
         });
     } catch (err) {
