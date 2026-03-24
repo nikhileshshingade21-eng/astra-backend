@@ -105,7 +105,12 @@ async function invalidateCache(keyPattern) {
     }
 }
 
+function isRedisConnected() {
+    return !!redisClient && !isRedisOffline;
+}
+
 module.exports = {
     getOrSetCache,
-    invalidateCache
+    invalidateCache,
+    isRedisConnected
 };

@@ -81,8 +81,9 @@ app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok', 
         server: 'ASTRA Backend', 
-        version: '1.0.4', 
+        version: '1.0.5', 
         time: new Date().toISOString(),
+        redis_connected: isRedisConnected(),
         email_service: {
             method: 'Resend API',
             resend_set: !!process.env.RESEND_API_KEY
