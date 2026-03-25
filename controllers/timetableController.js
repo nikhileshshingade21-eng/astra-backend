@@ -1,35 +1,44 @@
-const { getDb, queryAll, saveDb } = require('../database_module.js');
+const { getDb, queryAll } = require('../database_module.js');
 const { getCachedData } = require('../services/redisService');
+const { getLocalDate } = require('../utils/dateUtils');
 
 const getTodayClasses = async (req, res) => {
     try {
         const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const targetDay = req.query.day || days[new Date().getDay()];
-        const todayDate = new Date().toISOString().split('T')[0];
+        const targetDay = (req.query.day || days[new Date().getDay()]).trim();
+        const todayDate = getLocalDate();
         
-        // 🛡️ ASTRA V2: Prioritize query overrides for mobile app resilience
-        const programme = req.query.programme || req.user.programme || 'all';
-        const section = req.query.section || req.user.section || 'all';
+        // 🛡️ ASTRA V2: Prioritize query overrides with robust trimming
+        const programme = (req.query.programme || req.user.programme || 'all').trim();
+        const section = (req.query.section || req.user.section || 'all').trim();
 
-        console.log(`Fetching classes for: ${targetDay}, Programme: ${programme}, Section: ${section}`);
+        console.log(`[CHRONO_SYNC] Target: ${targetDay} | P: ${programme} | S: ${section}`);
 
         const cacheKey = `timetable:${targetDay}:${programme}:${section}`;
         const shouldRefresh = req.query.refresh === 'true';
         
         const fetchScheduleFromDb = async () => {
              let result;
-             if (programme !== 'all' && section !== 'all') {
+             // 🛡️ ASTRA V2: Section-dominant matching for departmental stability
+             if (section !== 'all') {
                  result = await queryAll(
                      `SELECT c.id, c.code, c.name, c.faculty_name, c.room, c.start_time, c.end_time
                       FROM classes c
-                      WHERE c.day = $1 AND c.programme = $2 AND c.section = $3
+                      WHERE TRIM(LOWER(c.day)) = TRIM(LOWER($1)) 
+                      AND TRIM(LOWER(c.section)) = TRIM(LOWER($2))
                       ORDER BY c.start_time`,
-                     [targetDay, programme, section]
+                     [targetDay, section]
                  );
-             } else {
+             } 
+             
+             // Fallback to broad match if strict match failed or was never requested
+             if (!result || result.length === 0) {
+                 console.log(`[CHRONO_FALLBACK] specific match failed/skipped for ${targetDay}. Doing broad search.`);
                  result = await queryAll(
                      `SELECT c.id, c.code, c.name, c.faculty_name, c.room, c.start_time, c.end_time
-                      FROM classes c WHERE c.day = $1 ORDER BY c.start_time`,
+                      FROM classes c 
+                      WHERE TRIM(LOWER(c.day)) = TRIM(LOWER($1)) 
+                      ORDER BY c.start_time`,
                      [targetDay]
                  );
              }

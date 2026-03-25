@@ -32,7 +32,7 @@ async function seed() {
             { day: 'Monday', code: 'AEP', name: 'Advanced English', faculty: 'Mrs. T Sreevani', room: '214', start: '09:00', end: '10:00' },
             { day: 'Monday', code: 'LBP', name: 'Logic Based Programming', faculty: 'Mr. T Balachary', room: '214', start: '10:10', end: '12:10' },
             { day: 'Monday', code: 'DS', name: 'Data Structures', faculty: 'Mr. K Praveen Kumar', room: '214', start: '12:50', end: '01:50' },
-            { day: 'Monday', code: 'BEE LAB', name: 'Basic Electrical Eng. Lab', faculty: 'Dr. M Narendar Reddy', room: 'BEE LAB', start: '01:50', end: '04:00' },
+            { day: 'Monday', code: 'BEE LAB', name: 'Basic Electrical Eng. Lab', faculty: 'Dr. M Narendar Reddy / Mr. D Mateu', room: 'BEE LAB', start: '01:50', end: '04:00' },
 
             // TUESDAY
             { day: 'Tuesday', code: 'DS', name: 'Data Structures', faculty: 'Mr. K Praveen Kumar', room: '214', start: '09:00', end: '10:00' },
@@ -42,9 +42,9 @@ async function seed() {
             { day: 'Tuesday', code: 'LIB', name: 'Library', faculty: 'Librarian', room: 'Library', start: '03:00', end: '04:00' },
 
             // WEDNESDAY
-            { day: 'Wednesday', code: 'SOFT SKILLS', name: 'Soft Skills Training', faculty: 'Akushi Roy', room: '214', start: '09:00', end: '12:10' },
+            { day: 'Wednesday', code: 'SOFT SKILLS', name: 'Soft Skills Training', faculty: 'Atoshi Roy', room: '214', start: '09:00', end: '12:10' },
             { day: 'Wednesday', code: 'BEE', name: 'Basic Electrical Eng.', faculty: 'Dr. M Narendar Reddy', room: '214', start: '12:50', end: '01:50' },
-            { day: 'Wednesday', code: 'AEP LAB', name: 'English Lab', faculty: 'Mrs. T Sreevani', room: 'AEP LAB', start: '01:50', end: '04:00' },
+            { day: 'Wednesday', code: 'AEP LAB', name: 'English Lab', faculty: 'Mrs. T Sreevani / Mr. A Sandeep', room: 'AEP LAB', start: '01:50', end: '04:00' },
 
             // THURSDAY
             { day: 'Thursday', code: 'ITWS', name: 'IT Workshop', faculty: 'Mr. Trishank', room: 'G-15', start: '09:00', end: '11:10' },
@@ -54,16 +54,17 @@ async function seed() {
             { day: 'Thursday', code: 'DS', name: 'Data Structures', faculty: 'Mr. K Praveen Kumar', room: '214', start: '03:00', end: '04:00' },
 
             // FRIDAY
-            { day: 'Friday', code: 'EDCAD', name: 'Eng. Drawing & CAD', faculty: 'Dr. K Govardhan Reddy', room: '321', start: '09:00', end: '10:00' },
-            { day: 'Friday', code: 'BEE', name: 'Basic Electrical Eng.', faculty: 'Dr. M Narendar Reddy', room: '214', start: '10:10', end: '12:10' },
+            { day: 'Friday', code: 'EDCAD', name: 'Eng. Drawing & CAD', faculty: 'Dr. K Govardhan Reddy / Mr. B. Naga Murali', room: '321', start: '09:00', end: '10:00' },
+            { day: 'Friday', code: 'BEE', name: 'Basic Electrical Eng.', faculty: 'Dr. M Narendar Reddy', room: '214', start: '10:10', end: '11:10' },
+            { day: 'Friday', code: 'ODEVC', name: 'Ordinary Diff. Equations', faculty: 'Mrs. A Swarnalatha', room: '214', start: '11:10', end: '12:10' },
             { day: 'Friday', code: 'AEP', name: 'Advanced English', faculty: 'Mrs. T Sreevani', room: '214', start: '12:50', end: '01:50' },
-            { day: 'Friday', code: 'DS LAB', name: 'Data Structures Lab', faculty: 'Mr. K Praveen Kumar', room: '120', start: '01:50', end: '04:00' },
+            { day: 'Friday', code: 'DS LAB', name: 'Data Structures Lab', faculty: 'Mr. K Praveen Kumar', room: '220', start: '01:50', end: '04:00' },
 
             // SATURDAY
-            { day: 'Saturday', code: 'EDCAD', name: 'Eng. Drawing & CAD', faculty: 'Dr. K Govardhan Reddy', room: '321', start: '09:00', end: '11:10' },
+            { day: 'Saturday', code: 'EDCAD', name: 'Eng. Drawing & CAD', faculty: 'Dr. K Govardhan Reddy / Mr. B. Naga Murali', room: '320', start: '09:00', end: '11:10' },
             { day: 'Saturday', code: 'ODEVC', name: 'Ordinary Diff. Equations', faculty: 'Mrs. A Swarnalatha', room: '214', start: '11:10', end: '12:10' },
             { day: 'Saturday', code: 'SPORTS', name: 'Sports Area', faculty: 'Coach', room: 'Ground', start: '12:50', end: '01:50' },
-            { day: 'Saturday', code: 'SSLITE', name: 'Self Study / Lite Session', faculty: 'Self', room: '214', start: '01:50', end: '04:00' }
+            { day: 'Saturday', code: 'SSLITE', name: 'Self Study / Lite Session', faculty: 'Atoshi Roy', room: '214', start: '01:50', end: '04:00' }
         ];
 
         for (const c of schedule) {
