@@ -18,23 +18,31 @@ const getTodayClasses = async (req, res) => {
         const shouldRefresh = req.query.refresh === 'true';
         
         const fetchScheduleFromDb = async () => {
-             let result;
-             // 🛡️ ASTRA V2: Section-dominant matching for departmental stability
-             if (section !== 'all') {
-                 result = await queryAll(
-                     `SELECT c.id, c.code, c.name, c.faculty_name, c.room, c.start_time, c.end_time
-                      FROM classes c
-                      WHERE TRIM(LOWER(c.day)) = TRIM(LOWER($1)) 
-                      AND TRIM(LOWER(c.section)) = TRIM(LOWER($2))
-                      ORDER BY c.start_time`,
-                     [targetDay, section]
-                 );
-             } 
+             // 🛡️ ASTRA V2 SMART_MATCH: Match by section OR (if section is null/all) by programme
+             // This ensures students in "CS" get classes marked "CS" or "B.Tech CSC"
+             console.log(`[DB_QUERY] Fetching for ${targetDay} | S: ${section} | P: ${programme}`);
              
-             // Fallback to broad match if strict match failed or was never requested
+             const result = await queryAll(
+                 `SELECT c.id, c.code, c.name, c.faculty_name, c.room, c.start_time, c.end_time, c.section, c.programme
+                  FROM classes c
+                  WHERE TRIM(LOWER(c.day)) = TRIM(LOWER($1))
+                  AND (
+                      -- Strict Section Match
+                      TRIM(LOWER(c.section)) = TRIM(LOWER($2))
+                      OR 
+                      -- Smart Fallback: Match programme if section is generic or null
+                      (
+                          TRIM(LOWER(c.programme)) = TRIM(LOWER($3)) 
+                          AND (c.section IS NULL OR c.section = '' OR c.section = 'all' OR c.section = 'CS')
+                      )
+                  )
+                  ORDER BY c.start_time`,
+                 [targetDay, section, programme]
+             );
+
              if (!result || result.length === 0) {
-                 console.log(`[CHRONO_FALLBACK] specific match failed/skipped for ${targetDay}. Doing broad search.`);
-                 result = await queryAll(
+                 console.log(`[CHRONO_FALLBACK] specific match failed for ${targetDay}. Doing broad search.`);
+                 return await queryAll(
                      `SELECT c.id, c.code, c.name, c.faculty_name, c.room, c.start_time, c.end_time
                       FROM classes c 
                       WHERE TRIM(LOWER(c.day)) = TRIM(LOWER($1)) 
@@ -52,8 +60,10 @@ const getTodayClasses = async (req, res) => {
         
         if (shouldRefresh) {
             const { invalidateCache } = require('../services/redisService');
+            // Sweep BOTH the specific key and the day pattern to ensure no stale overlaps persist
             await invalidateCache(cacheKey);
-            console.log(`Cache invalidated for: ${cacheKey}`);
+            await invalidateCache(`timetable:${targetDay}:*`);
+            console.log(`[CACHE_SWEEP] Invalidated: ${cacheKey} and timetable:${targetDay}:*`);
         }
 
         const result = await getCachedData(cacheKey, 3600, fetchScheduleFromDb);

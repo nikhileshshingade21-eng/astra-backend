@@ -4,7 +4,11 @@ const { Pool } = require('pg');
 // This will normally pick up DATABASE_URL or component env vars
 let connectionStr = process.env.DATABASE_URL?.replace(/\n|\r/g, '').trim();
 
-// Robust Validation: If DATABASE_URL is mangled (e.g. truncated by a copy-paste error), ignore it
+// Robust Validation: If DATABASE_URL is mangled (e.g. truncated by a copy-paste error or contains carriage returns), fix it
+if (connectionStr) {
+    connectionStr = connectionStr.replace(/\s/g, '').trim(); // Remove all mid-string spaces/newlines
+}
+
 if (connectionStr && (connectionStr.length < 30 || !connectionStr.includes('@'))) {
     console.warn('[DB] DATABASE_URL looks mangled, falling back to component variables.');
     connectionStr = null;

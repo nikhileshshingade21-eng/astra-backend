@@ -19,14 +19,20 @@ const marksRoutes = require('./routes/marks');
 const leavesRoutes = require('./routes/leaves');
 const { getAnnouncements, createAnnouncement } = require('./controllers/announcementController');
 const { scheduleV3Jobs } = require('./services/workflowEngine');
+const { checkVersion } = require('./controllers/versionController');
 const socketService = require('./services/socketService');
 const http = require('http');
 
+const path = require('path');
+
 const app = express();
 
-// INCREASED LIMITS FOR LARGE PAYLOADS
-app.use(express.json({ limit: '20mb' }));
-app.use(express.urlencoded({ limit: '20mb', extended: true }));
+// ASTRA V7 PRODUCTION: Serve static landing page
+app.use(express.static(path.join(__dirname, 'public')));
+
+// SEC-021: Strict Payload limits to prevent OOM restarts
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
 // VULN-014 FIX: Strict Security headers via helmet
 app.use(helmet({
@@ -77,6 +83,12 @@ app.use('/api/leaves', leavesRoutes);
 app.use('/api/marketplace', require('./routes/marketplace'));
 app.use('/api/placements', require('./routes/placements'));
 app.use('/api/ai/approvals', require('./routes/aiApprovals'));
+app.use('/api/tenant', require('./routes/tenant'));
+app.get('/api/version', checkVersion); 
+app.get('/api/download/latest', (req, res) => {
+    // Current release artifact
+    res.redirect('https://github.com/nikhil/astra/releases/download/v1.2.1/app-release.apk');
+});
 
 app.get('/api/health', (req, res) => {
     res.json({ 
@@ -104,7 +116,8 @@ app.use((err, req, res, next) => {
     res.status(err.status || 500).json({ error: process.env.NODE_ENV === 'production' ? 'Internal error' : err.message });
 });
 
-// INITIALIZE SERVER WITH LONGER TIMEOUTS
+const { validateSchema } = require('./schema_validator');
+
 const server = http.createServer(app);
 server.keepAliveTimeout = 120000;
 server.headersTimeout = 125000;
@@ -117,6 +130,7 @@ async function start() {
         console.log(`🚀 ASTRA Backend running on http://0.0.0.0:${PORT}`);
         try {
             await getDb(); 
+            await validateSchema(); // 🛡️ Ensure structural integrity
             await scheduleV3Jobs(); 
             console.log('[READY] ASTRA Services Synced.');
         } catch (err) {

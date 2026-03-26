@@ -58,16 +58,39 @@ async function getOrSetCache(key, ttl, fetchFn) {
         if (cached) return JSON.parse(cached);
     }
 
-    // 2. FETCH FRESH DATA
+    // 2. TRY REDIS (Distributed)
+    if (redisClient && !isRedisOffline) {
+        try {
+            const redisData = await redisClient.get(key);
+            if (redisData) {
+                // Update Local Memory
+                localCache.set(key, redisData);
+                localExpiries.set(key, now + (ttl * 1000));
+                return JSON.parse(redisData);
+            }
+        } catch (e) {
+            console.warn('[CACHE] Redis Read Failed:', e.message);
+            isRedisOffline = true;
+        }
+    }
+
+    // 3. FETCH FRESH DATA
     const freshData = await fetchFn();
     if (freshData !== undefined && freshData !== null) {
         const stringData = JSON.stringify(freshData);
         
+        // VULN-026 FIX: Prevent Memory Leak by pruning local cache
+        if (localCache.size > 1000) {
+            console.log('⚡ [CACHE] Local Memory Pruning (Max 1000 reached)');
+            localCache.clear();
+            localExpiries.clear();
+        }
+
         // Update Local
         localCache.set(key, stringData);
         localExpiries.set(key, now + (ttl * 1000));
 
-        // 3. SYNC TO REDIS (Background - Non-blocking)
+        // 4. SYNC TO REDIS (Background - Non-blocking)
         if (redisClient && !isRedisOffline) {
             redisClient.setEx(key, ttl, stringData).catch(e => {
                 console.warn('[CACHE] Redis Sync Failed:', e.message);
@@ -112,5 +135,6 @@ function isRedisConnected() {
 module.exports = {
     getOrSetCache,
     invalidateCache,
-    isRedisConnected
+    isRedisConnected,
+    getRedisClient: () => redisClient
 };
