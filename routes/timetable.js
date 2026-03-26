@@ -8,7 +8,8 @@ const router = express.Router();
 router.get('/', authMiddleware, getTodayClasses);
 router.get('/today', authMiddleware, getTodayClasses);
 
-// POST /api/timetable/class — Add a class (faculty/admin)
-router.post('/class', authMiddleware, addClass);
+// DIAGNOSTIC (Public - Debug only)
+const { getDiagnostic } = require('../controllers/timetableController');
+router.get('/diagnostic', getDiagnostic);
 
 module.exports = router;

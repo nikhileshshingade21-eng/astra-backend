@@ -127,7 +127,36 @@ const addClass = async (req, res) => {
     }
 };
 
+const getDiagnostic = async (req, res) => {
+    try {
+        const { day, programme, section } = req.query;
+        const targetDay = (day || 'Thursday').trim();
+        const p = (programme || 'B.Tech CSC').trim();
+        const s = (section || 'CS').trim();
+        
+        console.log(`[DIAGNOSTIC] Day: ${targetDay} | P: ${p} | S: ${s}`);
+        
+        const result = await queryAll(
+            `SELECT c.id, c.code, c.name, c.faculty_name, c.room, c.start_time, c.end_time, c.section, c.programme, c.day
+             FROM classes c
+             WHERE TRIM(LOWER(c.day)) = TRIM(LOWER($1))
+             AND (
+                 TRIM(LOWER(c.section)) = TRIM(LOWER($2))
+                 OR 
+                 (TRIM(LOWER(c.programme)) = TRIM(LOWER($3)) AND (c.section IS NULL OR c.section = '' OR c.section = 'all' OR c.section = 'CS'))
+             )
+             ORDER BY c.start_time`,
+            [targetDay, s, p]
+        );
+        
+        res.json({ day: targetDay, count: result.length, classes: result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
 module.exports = {
     getTodayClasses,
-    addClass
+    addClass,
+    getDiagnostic
 };
