@@ -49,8 +49,8 @@ const register = async (req, res) => {
         if (typeof name !== 'string' || name.length < 2 || name.length > 100) {
             return res.status(400).json({ error: 'Name must be 2-100 characters' });
         }
-        if (password.length < 6) {
-            return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        if (password.length < 8 || !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(password)) {
+            return res.status(400).json({ error: 'Password must be 8+ characters with uppercase, lowercase, number, and special character.' });
         }
         if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
             return res.status(400).json({ error: 'Invalid email format' });
@@ -89,16 +89,14 @@ const register = async (req, res) => {
                 // Claim pre-seeded account: Update it with all fields from registration
                 const password_hash = await bcrypt.hash(password, 10);
                 
-                // Encryption of Sensitive Data
+                // SEC-001 FIX: Purged simulation logic. Only store provided templates.
                 let encBio = null;
                 let encFace = null;
-                if (biometric_enrolled) {
-                    const bioData = biometric_template ? JSON.stringify(biometric_template) : JSON.stringify({ type: 'fp_template', data: Array.from({length: 64}, () => Math.random()) });
-                    encBio = encrypt(bioData);
+                if (biometric_enrolled && biometric_template) {
+                    encBio = encrypt(JSON.stringify(biometric_template));
                 }
-                if (face_enrolled) {
-                    const faceData = face_template ? JSON.stringify(face_template) : JSON.stringify({ type: 'face_geom', data: Array.from({length: 128}, () => Math.random()) });
-                    encFace = encrypt(faceData);
+                if (face_enrolled && face_template) {
+                    encFace = encrypt(JSON.stringify(face_template));
                 }
 
                 await queryAll(
@@ -115,16 +113,14 @@ const register = async (req, res) => {
             // New user registration
             const password_hash = await bcrypt.hash(password, 10);
 
-            // Encryption of Sensitive Data
+            // SEC-001 FIX: Purged simulation logic.
             let encBio = null;
             let encFace = null;
-            if (biometric_enrolled) {
-                const bioData = biometric_template ? JSON.stringify(biometric_template) : JSON.stringify({ type: 'fp_template', data: Array.from({length: 64}, () => Math.random()) });
-                encBio = encrypt(bioData);
+            if (biometric_enrolled && biometric_template) {
+                encBio = encrypt(JSON.stringify(biometric_template));
             }
-            if (face_enrolled) {
-                const faceData = face_template ? JSON.stringify(face_template) : JSON.stringify({ type: 'face_geom', data: Array.from({length: 128}, () => Math.random()) });
-                encFace = encrypt(faceData);
+            if (face_enrolled && face_template) {
+                encFace = encrypt(JSON.stringify(face_template));
             }
 
             const insertResult = await queryAll(
@@ -183,10 +179,10 @@ const login = async (req, res) => {
 
         const user = result[0];
 
-        // VULN-016 FIX: Device Binding Check
+        // VULN-016 FIX: Device Binding Check (Enforced)
         const { device_id } = req.body;
-        if (user.device_id && device_id && user.device_id !== device_id) {
-            return res.status(403).json({ error: 'This account is bound to another device. Contact Admin for reset.' });
+        if (user.device_id && user.device_id !== device_id) {
+            return res.status(403).json({ error: 'DEVICE_MISMATCH', message: 'This account is bound to another device. Contact Admin for reset.' });
         }
 
         // If no device bound yet, bind it now
@@ -209,7 +205,7 @@ const login = async (req, res) => {
         // Log login notification
         await queryAll(
             `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
-            [user.id, 'Login Successful', `Authenticated at ${new Date().toLocaleTimeString()}`, 'info']
+            [user.id, 'Login Successful', `Authenticated at ${new Date().toLocaleTimeString('en-US', { hour12: true, timeZone: 'Asia/Kolkata' })}`, 'info']
         );
 
         const { password_hash, ...safeUser } = user;

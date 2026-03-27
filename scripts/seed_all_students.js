@@ -1,13 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const { getDb, saveDb } = require('../db');
+const { queryAll } = require('../database_module');
 
 // Read the raw text from the user's prompt (saved to a file)
 const rawText = fs.readFileSync(path.join(__dirname, 'raw_students.txt'), 'utf-8');
 
 async function run() {
-    const db = await getDb();
-    console.log('Got DB connection.');
+    console.log('Starting student seeding...');
 
     const lines = rawText.split('\n');
     const students = [];
@@ -55,7 +54,7 @@ async function run() {
 
     // First, clear existing students to avoid duplicates or old placeholder data mixed with real data
     // We only want to keep admins.
-    db.run("DELETE FROM users WHERE role = 'student'");
+    await queryAll("DELETE FROM users WHERE role = 'student'");
     console.log('Cleared old student records from database.');
 
     // Insert new students into DB
@@ -67,9 +66,9 @@ async function run() {
 
        const bcrypt = require('bcryptjs');
         const hash123 = bcrypt.hashSync('123', 10);
-        db.run(
+        await queryAll(
             `INSERT INTO users (roll_number, name, programme, section, role, password_hash)
-             VALUES (?, ?, ?, ?, 'student', ?)`,
+             VALUES ($1, $2, $3, $4, 'student', $5)`,
             [st.id, st.name, st.prog, st.section, hash123]
         );
     }
@@ -81,8 +80,7 @@ async function run() {
     fs.writeFileSync(stdPath, exportStr, 'utf-8');
     console.log('Successfully generated new students.js for the app.');
 
-    saveDb();
-    console.log('All done!');
+    console.log('Successfully generated new students.js for the app.');
 }
 
 run().catch(console.error);

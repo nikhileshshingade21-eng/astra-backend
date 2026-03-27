@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { getDb, saveDb } = require('../db');
+const { queryAll } = require('../database_module');
 
 const classesData = [
     // CS
@@ -38,15 +38,14 @@ const classesData = [
 ];
 
 async function run() {
-    const db = await getDb();
-    console.log('Got DB connection.');
+    console.log('Starting CS seeding...');
 
-    db.run("DELETE FROM classes WHERE section = 'CS'");
+    await queryAll("DELETE FROM classes WHERE section = 'CS'");
 
     for (const c of classesData) {
-        db.run(
+        await queryAll(
             `INSERT INTO classes (code, name, faculty_name, room, day, start_time, end_time, programme, section, zone_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [c.code, c.name, c.faculty_name, c.room, c.day, c.start_time, c.end_time, c.prog, c.section, 1]
         );
     }
@@ -74,16 +73,14 @@ async function run() {
         if (st.section === 'CS') {
             const bcrypt = require('bcryptjs');
             const hash123 = bcrypt.hashSync('123', 10);
-            db.run(
+            await queryAll(
                 `INSERT INTO users (roll_number, name, programme, section, role, password_hash)
-                 VALUES (?, ?, ?, ?, 'student', ?) ON CONFLICT (roll_number) DO NOTHING`,
+                 VALUES ($1, $2, $3, $4, 'student', $5) ON CONFLICT (roll_number) DO NOTHING`,
                 [st.id, st.name, st.prog, st.section, hash123]
             );
         }
     }
     console.log('Inserted CS students into DB');
-
-    saveDb();
     console.log('All done for CS section!');
 }
 

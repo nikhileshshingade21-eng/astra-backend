@@ -15,7 +15,7 @@ async function apply() {
     });
 
     try {
-        const schemaPath = 'C:\\Users\\nikhi\\.gemini\\antigravity\\brain\\fd4dc6d7-9932-4577-a905-f47b8d4e26ab\\full_schema.sql';
+        const schemaPath = path.join(__dirname, 'schema.sql');
         const schema = fs.readFileSync(schemaPath, 'utf8');
 
         console.log('Applying full schema to PostgreSQL...');

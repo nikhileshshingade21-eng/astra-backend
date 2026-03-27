@@ -47,7 +47,7 @@ async function migrate() {
         console.log('Tables to migrate:', tables);
 
         // Required to initialize PG tables before migrating data
-        const { getDb } = require('./db.js');
+        const { getDb } = require('./database_module.js');
         await getDb(); // Initializes tables in PG if they don't exist
         
         // Truncate tables to safely migrate

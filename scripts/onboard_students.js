@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { getDb, saveDb } = require('../db');
+const { queryAll } = require('../database_module');
 
 /**
  * ASTRA STUDENT ONBOARDING TOOL
@@ -97,22 +97,21 @@ async function runOnboarding() {
     fs.writeFileSync(stdPath, exportStr, 'utf-8');
     console.log('Updated: Mobile app students.js');
 
-    // 3. SEED LOCAL DB
+    // 3. SEED REAL DB (Postgres)
     try {
-        const db = await getDb();
-        console.log('Syncing records to local SQLite database...');
+        console.log('Syncing records to persistent database...');
         
         for (const st of students) {
-            db.run(
-                `INSERT OR IGNORE INTO verified_students (roll_number, full_name, gender, branch, section)
-                 VALUES (?, ?, ?, ?, ?)`,
+            await queryAll(
+                `INSERT INTO verified_students (roll_number, full_name, gender, branch, section)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (roll_number) DO NOTHING`,
                 [st.roll_number, st.name, st.gender, st.branch, st.section]
             );
         }
-        saveDb();
-        console.log('Local DB Sync: SUCCESS');
+        console.log('DB Sync: SUCCESS');
     } catch (err) {
-        console.warn('Local DB Sync skipped (Railway environment likely).');
+        console.warn('DB Sync failed:', err.message);
     }
 
     console.log('--- ONBOARDING COMPLETE ! ---');

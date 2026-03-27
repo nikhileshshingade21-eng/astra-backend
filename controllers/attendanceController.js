@@ -1,6 +1,9 @@
 const { getDb, queryAll, saveDb } = require('../database_module.js');
 const { reportThreat } = require('../services/threatService');
 const { getOrSetCache } = require('../services/cacheService');
+const socketService = require('../services/socketService');
+
+const { getLocalDate } = require('../utils/dateUtils');
 
 // Haversine formula — calculate distance between two GPS coordinates in meters
 function haversine(lat1, lng1, lat2, lng2) {
@@ -66,8 +69,56 @@ async function detectGpsAnomaly(userId, gps_lat, gps_lng) {
 
 const mark = async (req, res) => {
     try {
-        const { class_id, gps_lat, gps_lng } = req.body;
+        const { class_id, gps_lat, gps_lng, method } = req.body;
         const db = await getDb();
+
+        // SEC-006 FIX: Request Signing Verification
+        const timestamp = req.headers['x-astra-timestamp'];
+        const nonce = req.headers['x-astra-nonce'];
+        const signature = req.headers['x-astra-signature'];
+
+        if (!timestamp || !nonce || !signature) {
+            return res.status(403).json({ error: 'PROTOCOL_VIOLATION', message: 'Missing protocol headers' });
+        }
+
+        // 1. Time Window Check (5 mins)
+        if (Math.abs(Date.now() - parseInt(timestamp)) > 5 * 60 * 1000) {
+            return res.status(403).json({ error: 'PROTOCOL_STALE', message: 'Request expired' });
+        }
+
+        // 2. Signature Verification (VULN-023 FIX: Include device_id binding)
+        const crypto = require('crypto');
+        const signatureBase = `${timestamp}:${nonce}:${class_id || 'general'}:${req.user.id}:${req.user.device_id}`;
+        const expectedSignature = crypto.createHash('sha256')
+            .update(signatureBase + (process.env.APP_PROTO_SECRET || 'ASTRA_PROTO_V4_SECRET'))
+            .digest('hex');
+
+        if (signature !== expectedSignature) {
+            return res.status(403).json({ error: 'PROTOCOL_TAMPERED', message: 'Invalid request signature' });
+        }
+
+        // 3. QR Protocol Verification (VULN-022 FIX)
+        if (method === 'qr_scan') {
+            const { qr_t } = req.body; // QR Timestamp from payload
+            if (qr_t && Math.abs(Date.now() - parseInt(qr_t)) > 10 * 60 * 1000) {
+                return res.status(403).json({ error: 'QR_PROTOCOL_STALE', message: 'The QR code has expired. Please scan a fresh one.' });
+            }
+        }
+
+        // 3. Nonce Check (Neutralize VULN-017: Replay Attack)
+        const { getRedisClient } = require('../services/cacheService');
+        const redis = getRedisClient();
+        if (redis) {
+            const nonceKey = `nonce:${nonce}`;
+            const exists = await redis.get(nonceKey);
+            if (exists) {
+                return res.status(403).json({ error: 'PROTOCOL_REPLAY', message: 'Request signature already used' });
+            }
+            await redis.set(nonceKey, '1', 'EX', 300); // Expire in 5 mins matching window
+        }
+
+        // LOG-GEN: High-fidelity request logging
+        console.log(`[📡 ATTENDANCE] REQ: User ${req.user.id} | Class: ${class_id || 'GENERAL'} | Method: ${method} | Nonce: ${nonce}`);
 
         if (gps_lat === undefined || gps_lat === null || gps_lng === undefined || gps_lng === null) {
             return res.status(400).json({ error: 'GPS coordinates are required' });
@@ -128,14 +179,29 @@ const mark = async (req, res) => {
             });
         }
 
-        const todayDate = new Date().toISOString().split('T')[0];
+        const todayDate = getLocalDate();
+        
+        // 🛡️ Pre-emptive existence check (UX)
         if (class_id) {
             const existing = await queryAll(
                 'SELECT id FROM attendance WHERE user_id = $1 AND class_id = $2 AND date = $3',
                 [req.user.id, class_id, todayDate]
             );
             if (existing.length > 0) {
-                return res.status(409).json({ error: 'Attendance already marked for this class today' });
+                console.log(`[🔄 IDEMPOTENCY] User ${req.user.id} re-submission for Class ${class_id}. returning 200 OK.`);
+                
+                // 🚀 FAIL-SAFETY (Final Layer): Log as a minor threat event for audit
+                threatService.reportThreat('duplicate_attendance_attempt', req.user.id, {
+                    class_id,
+                    attempted_at: new Date().toISOString()
+                }, req.ip).catch(e => console.error('[FAIL-SAFE] Threat log err:', e.message));
+
+                return res.json({ 
+                    success: true, 
+                    message: "Attendance confirmed (Idempotent)", 
+                    status: existing[0].status,
+                    date: todayDate 
+                });
             }
         }
 
@@ -153,12 +219,14 @@ const mark = async (req, res) => {
                 classEndDate.setHours(endH, endM, 0, 0);
 
                 // Last 10 minutes logic (Enforce only in production)
-                const tenMinsBeforeEnd = new Date(classEndDate.getTime() - 10 * 60000);
+                // CHAOS-FIX: Add 120s grace buffer for server/client clock skew
+                const GRACE_BUFFER_MS = 120 * 1000;
+                const protocolOpenTime = new Date(classEndDate.getTime() - 10 * 60000 - GRACE_BUFFER_MS);
                 
-                if (process.env.NODE_ENV === 'production' && now < tenMinsBeforeEnd) {
+                if (process.env.NODE_ENV === 'production' && now < protocolOpenTime) {
                     return res.status(403).json({
                         error: 'TIME PROTOCOL BREACH',
-                        message: `Attendance marking for ${className} is only permitted in the FINAL 10 MINUTES of the session. Protocol opens at ${tenMinsBeforeEnd.toLocaleTimeString()}.`
+                        message: `Attendance marking for ${className} is only permitted in the FINAL 10 MINUTES of the session. Protocol opens at ${protocolOpenTime.toLocaleTimeString()}.`
                     });
                 }
 
@@ -168,16 +236,44 @@ const mark = async (req, res) => {
             }
         }
 
-        await queryAll(
-            `INSERT INTO attendance (user_id, class_id, date, status, gps_lat, gps_lng, distance_m, method)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-            [req.user.id, class_id || null, todayDate, status, gps_lat, gps_lng, Math.round(nearestDistance), 'gps+biometric']
-        );
+        // BUG-002 FIX: Atomic Double-Check & Insert (Neutralize Race Conditions)
+        try {
+            await queryAll(
+                `INSERT INTO attendance (user_id, class_id, date, status, gps_lat, gps_lng, distance_m, method)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT (user_id, class_id, date) DO NOTHING`,
+                [req.user.id, class_id || null, todayDate, status, gps_lat, gps_lng, Math.round(nearestDistance), method || 'gps+biometric']
+            );
+        } catch (err) {
+            // CHAOS-FIX: Handle 'Unique Violation' race condition during Redis outage
+            if (err.code === '23505') {
+                console.log(`[🛡️ RACE_RECOVERED] User ${req.user.id} DB Conflict handled as Success.`);
+                return res.json({ 
+                    success: true, 
+                    message: "Attendance confirmed (Race Condition Recovered)", 
+                    status, 
+                    date: todayDate 
+                });
+            }
+            throw err; // Re-throw other errors
+        }
 
         await queryAll(
             `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
             [req.user.id, 'Attendance Marked', `${status === 'present' ? '✓ Present' : '⚠ Late'} — ${todayDate} at ${new Date().toLocaleTimeString()}. Distance: ${Math.round(nearestDistance)}m`, status === 'present' ? 'success' : 'warning']
         );
+
+        // REAL-TIME BROADCAST: Notify faculty/monitor (VULN-020 FIX)
+        const userDetails = await queryAll('SELECT name, roll_number FROM users WHERE id = $1', [req.user.id]);
+        if (class_id && userDetails.length > 0) {
+            console.log(`[🛰️ SOCKET] Broadcasting presence for ROLL: ${userDetails[0].roll_number}`);
+            socketService.broadcastToClass(class_id, 'ATTENDANCE_MARKED', {
+                ...userDetails[0],
+                id: req.user.id,
+                status,
+                marked_at: new Date().toISOString()
+            });
+        }
 
         res.json({
             success: true,
@@ -218,7 +314,7 @@ const getLiveAttendance = async (req, res) => {
     try {
         const { classId } = req.params;
         const db = await getDb();
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDate();
 
         // First find the class to get programme and section
         const clsRes = await queryAll('SELECT programme, section FROM classes WHERE id = $1', [classId]);
@@ -227,7 +323,8 @@ const getLiveAttendance = async (req, res) => {
         }
         const { programme: prog, section: sec } = clsRes[0];
 
-        // Fetch all students in this section and their attendance for today if it exists
+        // Fetch all students in this section and their attendance for today
+        // SEC-023 FIX: Ensure we only pull strictly necessary PII
         const result = await queryAll(`
             SELECT u.id, u.roll_number, u.name, a.status, a.marked_at
             FROM users u
@@ -252,7 +349,7 @@ const getLiveAttendance = async (req, res) => {
         }
 
         // Get total expected students in this group
-        const totalEns = await queryAll('SELECT COUNT(*) as count FROM users WHERE role = "student" AND programme = $1 AND section = $2', [prog, sec]);
+        const totalEns = await queryAll(`SELECT COUNT(*) as count FROM users WHERE role = 'student' AND programme = $1 AND section = $2`, [prog, sec]);
         const totalEnrolled = totalEns.length ? parseInt(totalEns[0].count) : 0;
 
         res.json({
@@ -281,7 +378,7 @@ const manualMark = async (req, res) => {
         }
 
         const db = await getDb();
-        const todayDate = new Date().toISOString().split('T')[0];
+        const todayDate = getLocalDate();
 
         // Upsert attendance record
         const existing = await queryAll(

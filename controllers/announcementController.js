@@ -33,7 +33,7 @@ exports.getAnnouncements = async (req, res) => {
 // Create announcement (Teacher/Admin only)
 exports.createAnnouncement = async (req, res) => {
     try {
-        const { title, content, category, section } = req.body;
+        const { title, content, category, section, image_url } = req.body;
         const userId = req.user.id;
         const userRole = req.user.role;
 
@@ -47,11 +47,11 @@ exports.createAnnouncement = async (req, res) => {
         }
 
         const sql = `
-            INSERT INTO announcements (title, content, category, section, user_id)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO announcements (title, content, category, section, user_id, image_url)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
         `;
-        const params = [title, content, category || 'General', section || 'All', userId];
+        const params = [title, content, category || 'General', section || 'All', userId, image_url];
 
         const [newAnnouncement] = await queryAll(sql, params);
 

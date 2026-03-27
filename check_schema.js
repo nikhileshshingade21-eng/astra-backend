@@ -1,17 +1,20 @@
-const { Pool } = require('pg');
-const pool = new Pool({
-    connectionString: 'postgresql://postgres.puyulkjtrmbkiljlbuqw:AstraProject2026@aws-1-ap-south-1.pooler.supabase.com:6543/postgres',
-    ssl: { rejectUnauthorized: false }
-});
+require('dotenv').config();
+const { queryAll } = require('./database_module.js');
 
-async function check() {
+async function checkSchema() {
     try {
-        const res = await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'classes'");
-        console.log('COLUMNS:', res.rows.map(r => r.column_name).join(', '));
+        const rows = await queryAll(`
+            SELECT column_name, data_type 
+            FROM information_schema.columns 
+            WHERE table_name = 'campus_zones'
+        `);
+        console.log('Columns in campus_zones:');
+        rows.forEach(row => console.log(`- ${row.column_name} (${row.data_type})`));
+        process.exit(0);
     } catch (err) {
-        console.error(err);
-    } finally {
-        await pool.end();
+        console.error('Error checking schema:', err);
+        process.exit(1);
     }
 }
-check();
+
+checkSchema();

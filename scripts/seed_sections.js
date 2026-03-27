@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { getDb, saveDb } = require('../db');
+const { queryAll } = require('../database_module');
 
 const classesData = [
     // DS-1
@@ -141,17 +141,14 @@ const classesData = [
 ];
 
 async function run() {
-    const db = await getDb();
-    console.log('Got DB connection.');
-
     // 1. Clear old classes to avoid clashes
-    db.run("DELETE FROM classes");
-
+    await queryAll("DELETE FROM classes");
+    
     // 2. Insert new timetable
     for (const c of classesData) {
-        db.run(
+        await queryAll(
             `INSERT INTO classes (code, name, faculty_name, room, day, start_time, end_time, programme, section, zone_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [c.code, c.name, c.faculty_name, c.room, c.day, c.start_time, c.end_time, c.prog, c.section, 1]
         );
     }
@@ -190,15 +187,15 @@ async function run() {
     fs.unlinkSync(tmpPath);
 
     for (const st of studentsArr) {
-        db.run(
-            `INSERT OR IGNORE INTO users (roll_number, name, programme, section, role, password_hash)
-            VALUES (?, ?, ?, ?, 'student', '123')`,
+        await queryAll(
+            `INSERT INTO users (roll_number, name, programme, section, role, password_hash)
+            VALUES ($1, $2, $3, $4, 'student', '123')
+            ON CONFLICT (roll_number) DO NOTHING`,
             [st.id, st.name, st.prog, st.section]
         );
     }
     console.log('Inserted missing students into DB');
 
-    saveDb();
     console.log('All done!');
 }
 

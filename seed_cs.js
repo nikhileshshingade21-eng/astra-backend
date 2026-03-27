@@ -1,20 +1,17 @@
-const { getDb, saveDb } = require('./db.js');
+const { queryAll } = require('./database_module.js');
 const bcrypt = require('bcryptjs');
 
 async function seed() {
-    const db = await getDb();
+    console.log('Starting CS seeding to PostgreSQL...');
     
-    // 1. Migrate schema to add biometric/face storage flags
-    console.log('Migrating schema...');
+    // 1. Migrate schema to add biometric/face storage flags (Postgres syntax)
+    console.log('Ensuring schema columns exist...');
     try {
-        db.run('ALTER TABLE users ADD COLUMN biometric_enrolled INTEGER DEFAULT 0');
-    } catch(e) { console.log('Column biometric_enrolled likely exists'); }
+        await queryAll('ALTER TABLE users ADD COLUMN IF NOT EXISTS biometric_enrolled INTEGER DEFAULT 0');
+    } catch(e) { console.log('Notice: biometric_enrolled likely exists or table locked'); }
     try {
-        db.run('ALTER TABLE users ADD COLUMN face_enrolled INTEGER DEFAULT 0');
-    } catch(e) { console.log('Column face_enrolled likely exists'); }
-
-    // 2. Clear existing CS students/classes if we want a fresh state (optional)
-    // We'll leave existing data but specifically add/update these ones.
+        await queryAll('ALTER TABLE users ADD COLUMN IF NOT EXISTS face_enrolled INTEGER DEFAULT 0');
+    } catch(e) { console.log('Notice: face_enrolled likely exists or table locked'); }
 
     const students = [
         { r: '25N81A6201', n: 'TANGIRALA VIJAYA SHANMUKHA SRIVALLI' },
@@ -69,18 +66,18 @@ async function seed() {
 
     console.log('Seeding CS Students...');
     const hashed = await bcrypt.hash('password123', 10);
-    const insertUser = db.prepare(`
-        INSERT OR IGNORE INTO users (roll_number, name, programme, section, role, password_hash)
-        VALUES (?, ?, 'B.Tech CSC', 'CS', 'student', ?)
-    `);
 
     for(const s of students) {
-        insertUser.run([s.r, s.n, hashed]);
+        await queryAll(
+            `INSERT INTO users (roll_number, name, programme, section, role, password_hash)
+            VALUES ($1, $2, 'B.Tech CSC', 'CS', 'student', $3)
+            ON CONFLICT (roll_number) DO NOTHING`,
+            [s.r, s.n, hashed]
+        );
     }
-    insertUser.free();
 
     // 3. Clear existing classes for CS and insert accurate ones
-    db.run("DELETE FROM classes WHERE section='CS'");
+    await queryAll("DELETE FROM classes WHERE section='CS'");
     
     const csClasses = [
         ['Monday', '09:00', '10:00', 'AEP', 'Mrs. T Sreevani'], 
@@ -112,34 +109,35 @@ async function seed() {
     ];
 
     console.log('Seeding CS Timetable...');
-    const insertClass = db.prepare(`
-        INSERT INTO classes (code, name, faculty_name, room, day, start_time, end_time, programme, section)
-        VALUES (?, ?, ?, '214', ?, ?, ?, 'B.Tech CSC', 'CS')
-    `);
-
     for(const c of csClasses) {
-        insertClass.run([c[3], c[3], c[4], c[0], c[1], c[2]]);
+        await queryAll(
+            `INSERT INTO classes (code, name, faculty_name, room, day, start_time, end_time, programme, section)
+            VALUES ($1, $2, $3, '214', $4, $5, $6, 'B.Tech CSC', 'CS')`,
+            [c[3], c[3], c[4], c[0], c[1], c[2]]
+        );
     }
-    insertClass.free();
 
     console.log('Seeding Faculty Accounts...');
     const hashedFaculty = await bcrypt.hash('admin123', 10);
-    const insertFaculty = db.prepare(`
-        INSERT OR REPLACE INTO users (roll_number, name, role, password_hash)
-        VALUES (?, ?, 'faculty', ?)
-    `);
     
-    insertFaculty.run(['F-SREEVANI', 'Mrs. T Sreevani', hashedFaculty]);
-    insertFaculty.run(['F-PRAVEEN', 'Mr. K Praveen Kumar', hashedFaculty]);
-    insertFaculty.run(['F-NARENDER', 'Dr. M Narender Reddy', hashedFaculty]);
-    insertFaculty.free();
+    const faculties = [
+        ['F-SREEVANI', 'Mrs. T Sreevani'],
+        ['F-PRAVEEN', 'Mr. K Praveen Kumar'],
+        ['F-NARENDER', 'Dr. M Narender Reddy']
+    ];
+
+    for (const f of faculties) {
+        await queryAll(
+            `INSERT INTO users (roll_number, name, role, password_hash)
+            VALUES ($1, $2, 'faculty', $3)
+            ON CONFLICT (roll_number) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, password_hash = EXCLUDED.password_hash`,
+            [f[0], f[1], hashedFaculty]
+        );
+    }
 
     // 4. Create Campus Zone for Room 214 (for testing)
-    const insertZone = db.prepare("INSERT OR IGNORE INTO campus_zones (name, lat, lng, radius_m) VALUES ('Room 214', 17.547, 78.382, 50)");
-    insertZone.run();
-    insertZone.free();
+    await queryAll("INSERT INTO campus_zones (name, lat, lng, radius_m) VALUES ('Room 214', 17.547, 78.382, 50) ON CONFLICT DO NOTHING");
 
-    saveDb();
     console.log('Seed complete!');
 }
 

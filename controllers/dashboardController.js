@@ -1,4 +1,5 @@
-const { getDb, queryAll, saveDb } = require('../database_module.js');
+const { getDb, queryAll } = require('../database_module.js');
+const { getLocalDate } = require('../utils/dateUtils');
 const aiService = require('../services/aiService');
 
 const getDashboardStats = async (req, res) => {
@@ -42,9 +43,11 @@ const getDashboardStats = async (req, res) => {
             const dates = streakResult.map(r => r.date);
             const today = new Date();
             for (let i = 0; i < dates.length; i++) {
-                const expected = new Date(today);
-                expected.setDate(expected.getDate() - i);
-                const expectedStr = expected.toISOString().split('T')[0];
+                const expectedDate = new Date();
+                expectedDate.setDate(expectedDate.getDate() - i);
+                const offset = expectedDate.getTimezoneOffset();
+                const localExpected = new Date(expectedDate.getTime() - (offset * 60 * 1000));
+                const expectedStr = localExpected.toISOString().split('T')[0];
                 if (dates[i] === expectedStr) {
                     streak++;
                 } else {
@@ -63,7 +66,7 @@ const getDashboardStats = async (req, res) => {
         const recent = recentResult || [];
 
         // Today's attendance count
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDate();
         const todayResult = await queryAll('SELECT COUNT(*) as count FROM attendance WHERE user_id = $1 AND date = $2', [userId, today]);
         const todayCount = todayResult.length ? parseInt(todayResult[0].count) : 0;
 
@@ -95,11 +98,25 @@ const getDashboardStats = async (req, res) => {
             const attended = parseInt(s.present) + (parseInt(s.late) || 0);
             const total = parseInt(s.total_attendance);
             const pct = total > 0 ? Math.round((attended / total) * 100) : 0;
+            const target = 0.75;
+            let can_bunk = 0;
+            let must_attend = 0;
+            
+            if (total > 0) {
+                if (pct >= 75) {
+                    can_bunk = Math.max(0, Math.floor((attended - target * total) / target));
+                } else {
+                    must_attend = Math.max(0, Math.ceil((target * total - attended) / (1 - target)));
+                }
+            }
+
             const colors = ['#0ea5e9', '#6366f1', '#10b981', '#3b82f6', '#f59e0b'];
             return {
                 name: s.name,
                 code: s.code,
                 pct: pct,
+                can_bunk,
+                must_attend,
                 color: colors[i % colors.length]
             };
         });
@@ -110,7 +127,9 @@ const getDashboardStats = async (req, res) => {
         for (let i = -7; i <= 3; i++) {
             const date = new Date();
             date.setDate(date.getDate() + i);
-            const dateStr = date.toISOString().split('T')[0];
+            const offset = date.getTimezoneOffset();
+            const localDate = new Date(date.getTime() - (offset * 60 * 1000));
+            const dateStr = localDate.toISOString().split('T')[0];
             const isFuture = i > 0;
             const isToday = i === 0;
 
