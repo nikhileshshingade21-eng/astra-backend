@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const { getDb, queryAll, saveDb } = require('../database_module.js');
 const { JWT_SECRET } = require('../middleware');
 const { encrypt, decrypt } = require('../utils/encryption');
+const { extractEmbedding, matchFace } = require('../services/aiFaceService');
 
 const verify = async (req, res) => {
     try {
@@ -35,6 +36,7 @@ const register = async (req, res) => {
             roll_number, name, email, phone, programme, section, password, 
             biometric_enrolled, face_enrolled,
             biometric_template, face_template,
+            face_image, // New field for live face capture
             device_id
         } = req.body;
 
@@ -68,7 +70,34 @@ const register = async (req, res) => {
         }
 
         // Check if roll number already exists
-        const existing = await queryAll('SELECT id, password_hash, is_registered FROM users WHERE roll_number = $1', [roll_number.toUpperCase()]);
+        const existing = await queryAll('SELECT id, password_hash, is_registered, face_embedding FROM users WHERE roll_number = $1', [roll_number.toUpperCase()]);
+
+        // --- FACE BIOMETRIC UPGRADE: Duplicate Detection ---
+        let newFaceEmbedding = null;
+        if (face_image) {
+            console.log(`[👤 FACE_REG] Extracting embedding for ${roll_number}...`);
+            const extractRes = await extractEmbedding(face_image);
+            if (!extractRes.success) {
+                return res.status(422).json({ error: 'FACE_CAPTURE_INVALID', message: extractRes.error || 'Could not extract high-quality facial features. Please ensure good lighting.' });
+            }
+            newFaceEmbedding = extractRes.embedding;
+
+            // Fetch all existing face embeddings to check for duplicates
+            const allEmbeddings = await queryAll('SELECT face_embedding, roll_number FROM users WHERE face_embedding IS NOT NULL');
+            if (allEmbeddings.length > 0) {
+                const candidates = allEmbeddings.map(e => JSON.parse(e.face_embedding));
+                const matchRes = await matchFace(newFaceEmbedding, candidates);
+                
+                if (matchRes.duplicate_found) {
+                    const matchedUser = allEmbeddings[matchRes.matches[0].index];
+                    console.warn(`[🛡️ FRAUD_PREVENTION] Duplicate face detected for ${roll_number}. Matches ${matchedUser.roll_number}`);
+                    return res.status(409).json({ 
+                        error: 'DUPLICATE_FACE_DETECTED', 
+                        message: 'This face is already registered with another account. One face = One account policy enforced.' 
+                    });
+                }
+            }
+        }
 
         // SEC-002 FIX: Role is always 'student' for self-registration.
         // Admin/faculty roles must be assigned by an existing admin.
@@ -101,9 +130,11 @@ const register = async (req, res) => {
 
                 await queryAll(
                     `UPDATE users SET name = $1, email = $2, phone = $3, programme = $4, section = $5, password_hash = $6, 
-                     biometric_enrolled = $7, face_enrolled = $8, biometric_template = $9, face_template = $10, is_registered = TRUE, device_id = $11 WHERE id = $12`,
+                     biometric_enrolled = $7, face_enrolled = $8, biometric_template = $9, face_template = $10, 
+                     face_embedding = $11, is_registered = TRUE, device_id = $12 WHERE id = $13`,
                     [name, email || null, phone || null, programme || null, section || null, password_hash, 
-                     biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, device_id || null, oldId]
+                     biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, 
+                     newFaceEmbedding ? JSON.stringify(newFaceEmbedding) : null, device_id || null, oldId]
                 );
                 userId = oldId;
             } else {
@@ -125,10 +156,11 @@ const register = async (req, res) => {
 
             const insertResult = await queryAll(
                 `INSERT INTO users (roll_number, name, email, phone, programme, section, role, password_hash, 
-                 biometric_enrolled, face_enrolled, biometric_template, face_template, is_registered, device_id) 
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+                 biometric_enrolled, face_enrolled, biometric_template, face_template, face_embedding, is_registered, device_id) 
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
                 [roll_number.toUpperCase(), name, email || null, phone || null, programme || null, section || null, 
-                 userRole, password_hash, biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, true, device_id || null]
+                 userRole, password_hash, biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, 
+                 newFaceEmbedding ? JSON.stringify(newFaceEmbedding) : null, true, device_id || null]
             );
 
             if (insertResult && insertResult.length > 0) {

@@ -126,6 +126,15 @@ async function validateSchema() {
                 is_active BOOLEAN DEFAULT TRUE,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        `,
+        verified_students: `
+            CREATE TABLE IF NOT EXISTS verified_students (
+                id SERIAL PRIMARY KEY,
+                roll_number VARCHAR(20) UNIQUE NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                department VARCHAR(50),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
         `
     };
 

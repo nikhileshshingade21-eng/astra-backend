@@ -2,6 +2,8 @@ const { getDb, queryAll, saveDb } = require('../database_module.js');
 const { reportThreat } = require('../services/threatService');
 const { getOrSetCache } = require('../services/cacheService');
 const socketService = require('../services/socketService');
+const { verifyFace } = require('../services/aiFaceService');
+const { queryAll: directQuery } = require('../database_module');
 
 const { getLocalDate } = require('../utils/dateUtils');
 
@@ -69,7 +71,7 @@ async function detectGpsAnomaly(userId, gps_lat, gps_lng) {
 
 const mark = async (req, res) => {
     try {
-        const { class_id, gps_lat, gps_lng, method } = req.body;
+        const { class_id, gps_lat, gps_lng, method, face_image } = req.body;
         const db = await getDb();
 
         // SEC-006 FIX: Request Signing Verification
@@ -104,6 +106,31 @@ const mark = async (req, res) => {
                 return res.status(403).json({ error: 'QR_PROTOCOL_STALE', message: 'The QR code has expired. Please scan a fresh one.' });
             }
         }
+
+        // --- FACE VERIFICATION UPGRADE ---
+        if (!face_image) {
+            return res.status(400).json({ error: 'FACE_REQUIRED', message: 'Real-time face capture is mandatory for attendance security.' });
+        }
+
+        // Fetch user's stored face embedding
+        const userRes = await queryAll('SELECT face_embedding FROM users WHERE id = $1', [req.user.id]);
+        if (userRes.length === 0 || !userRes[0].face_embedding) {
+            return res.status(403).json({ error: 'FACE_NOT_ENROLLED', message: 'You have not enrolled your face biometrics. Please re-register or contact admin.' });
+        }
+
+        const storedEmbedding = JSON.parse(userRes[0].face_embedding);
+        console.log(`[👤 FACE_VERIFY] Verifying face for User ${req.user.id}...`);
+        
+        const verifyRes = await verifyFace(storedEmbedding, face_image);
+        if (!verifyRes.verified) {
+            console.warn(`[🛡️ AUTH_FAILURE] Face mismatch for User ${req.user.id}. Distance: ${verifyRes.distance}`);
+            return res.status(403).json({ 
+                error: 'FACE_MISMATCH', 
+                message: 'Face verification failed. Please ensure your face is clearly visible and try again.',
+                details: { distance: verifyRes.distance }
+            });
+        }
+        console.log(`[✅ FACE_VERIFIED] Match confirmed. Confidence: ${verifyRes.confidence}`);
 
         // 3. Nonce Check (Neutralize VULN-017: Replay Attack)
         const { getRedisClient } = require('../services/cacheService');
