@@ -63,8 +63,11 @@ async function queryAll(sql, params = []) {
         });
         return res.rows || [];
     } catch (err) {
-        // HIGH-05 FIX: Never log params (may contain passwords, biometric data)
-        console.error('[DB] Query Error:', err.message, '\nSQL:', sql);
+        // ENOTFOUND FIX: Log specifically if host is unreachable
+        if (err.code === 'ENOTFOUND') {
+            console.error(`[CRITICAL] DB_HOST Unreachable: ${pool.options.connectionString?.split('@')[1]?.split(':')[0] || 'Unknown'}. Check your Railway Variables!`);
+        }
+        console.error('[DB] Query Error:', err.message);
         throw err;
     } finally {
         if (client) client.release();
