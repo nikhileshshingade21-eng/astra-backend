@@ -130,7 +130,13 @@ server.timeout = 120000;
 
 async function start() {
     socketService.init(server);
-    const PORT = process.env.PORT || 3000;
+    // FIX: Railway Redis addon injects PORT=6379 which collides with our HTTP port.
+    // Use RAILWAY_PORT first, then PORT (but reject 6379), then fallback to 3000.
+    let PORT = process.env.RAILWAY_PORT || process.env.PORT || 3000;
+    if (String(PORT) === '6379') {
+        console.warn('[PORT] Detected Redis port 6379 as PORT — overriding to 3000. Set RAILWAY_PORT or PORT_HTTP to fix.');
+        PORT = 3000;
+    }
     server.listen(PORT, async () => {
         console.log(`🚀 ASTRA Backend running on http://0.0.0.0:${PORT}`);
         try {
