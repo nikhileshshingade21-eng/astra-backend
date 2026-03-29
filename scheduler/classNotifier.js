@@ -1,12 +1,13 @@
 /**
- * ASTRA Class Notification Scheduler
- * Place this file at: scheduler/classNotifier.js in your Railway backend
+ * ASTRA Class Notification Scheduler (PostgreSQL Version)
+ * Optimized for Railway + Supabase.
  */
 
 const cron = require('node-cron');
 const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
+const { queryAll } = require('../database_module');
 
 // Initialize Firebase Admin SDK (supports both file and env variable)
 let serviceAccount;
@@ -22,9 +23,11 @@ if (fs.existsSync(credPath)) {
   return;
 }
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+}
 
 // In-memory cache for sent notifications
 const sentNotifications = new Map();
@@ -32,89 +35,82 @@ const sentNotifications = new Map();
 /**
  * Check for upcoming and ongoing classes
  */
-async function checkClasses(db) {
+async function checkClasses() {
   try {
     console.log('🔍 Checking for upcoming classes...');
 
     const now = new Date();
-    const currentTime = now.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      timeZone: 'Asia/Kolkata', // CHANGE THIS TO YOUR TIMEZONE
-    });
-
+    // Use IST timezone for current time and day
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istTime = new Date(now.getTime() + istOffset);
+    
+    const currentTime = istTime.toISOString().substr(11, 5); // HH:mm
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const currentDay = dayNames[now.getDay()];
+    const currentDay = dayNames[istTime.getUTCDay()];
 
-    console.log(`📅 Current time: ${currentTime}, Day: ${currentDay}`);
+    console.log(`📅 Current time (IST): ${currentTime}, Day: ${currentDay}`);
 
-    // Fetch all users with timetables and FCM tokens
-    const users = await db.collection('users').find({ 
-      fcm_token: { $exists: true },
-      timetable: { $exists: true } 
-    }).toArray();
+    // Fetch all users with FCM tokens and their classes for today
+    const sql = `
+      SELECT u.id as user_id, u.email, u.fcm_token, 
+             c.name as subject, c.start_time, c.room
+      FROM users u
+      JOIN classes c ON (u.programme = c.programme AND u.section = c.section)
+      WHERE u.fcm_token IS NOT NULL AND c.day = $1
+    `;
+    
+    const results = await queryAll(sql, [currentDay]);
 
     let notificationCount = 0;
 
-    for (const user of users) {
-      const { timetable, fcm_token, email } = user;
+    for (const row of results) {
+      const { user_id, email, fcm_token, subject, start_time, room } = row;
 
-      if (!fcm_token || !timetable || !timetable[currentDay]) continue;
+      const classStartMinutes = parseTime(start_time);
+      const nowMinutes = parseTime(currentTime);
+      const minutesUntilClass = classStartMinutes - nowMinutes;
 
-      const todayClasses = timetable[currentDay];
+      // SCENARIO 1: Class starting in 10-15 minutes (reminder)
+      if (minutesUntilClass >= 10 && minutesUntilClass <= 15) {
+        const notificationKey = `${user_id}_${subject}_${start_time}_reminder`;
 
-      for (const classInfo of todayClasses) {
-        const { subject, start_time, room } = classInfo;
+        if (!sentNotifications.has(notificationKey)) {
+          await sendNotification(fcm_token, {
+            title: `📚 Upcoming: ${subject}`,
+            body: `Your class starts in ${minutesUntilClass} minutes at ${start_time} in ${room || 'TBA'}`,
+            data: {
+              type: 'class_reminder',
+              class_name: subject,
+              start_time,
+              room: room || 'TBA',
+            },
+          });
 
-        if (!start_time) continue;
-
-        const classStart = parseTime(start_time);
-        const nowMinutes = parseTime(currentTime);
-        const minutesUntilClass = classStart - nowMinutes;
-
-        // SCENARIO 1: Class starting in 10-15 minutes (reminder)
-        if (minutesUntilClass >= 10 && minutesUntilClass <= 15) {
-          const notificationKey = `${user._id}_${subject}_${start_time}_reminder`;
-
-          if (!sentNotifications.has(notificationKey)) {
-            await sendNotification(fcm_token, {
-              title: `📚 Upcoming: ${subject}`,
-              body: `Your class starts in ${minutesUntilClass} minutes at ${start_time} in ${room || 'TBA'}`,
-              data: {
-                type: 'class_reminder',
-                class_name: subject,
-                start_time,
-                room: room || 'TBA',
-              },
-            });
-
-            sentNotifications.set(notificationKey, Date.now());
-            notificationCount++;
-            console.log(`✅ Sent reminder to ${email} for ${subject}`);
-          }
+          sentNotifications.set(notificationKey, Date.now());
+          notificationCount++;
+          console.log(`✅ Sent reminder to ${email} for ${subject}`);
         }
+      }
 
-        // SCENARIO 2: Class just started (0-5 minutes)
-        if (minutesUntilClass >= -5 && minutesUntilClass <= 0) {
-          const notificationKey = `${user._id}_${subject}_${start_time}_start`;
+      // SCENARIO 2: Class just started (0-5 minutes)
+      if (minutesUntilClass >= -5 && minutesUntilClass <= 0) {
+        const notificationKey = `${user_id}_${subject}_${start_time}_start`;
 
-          if (!sentNotifications.has(notificationKey)) {
-            await sendNotification(fcm_token, {
-              title: `🔔 Class Started: ${subject}`,
-              body: `Your class has started at ${start_time} in ${room || 'TBA'}. Mark your attendance!`,
-              data: {
-                type: 'class_start',
-                class_name: subject,
-                start_time,
-                room: room || 'TBA',
-              },
-            });
+        if (!sentNotifications.has(notificationKey)) {
+          await sendNotification(fcm_token, {
+            title: `🔔 Class Started: ${subject}`,
+            body: `Your class has started at ${start_time} in ${room || 'TBA'}. Mark your attendance!`,
+            data: {
+              type: 'class_start',
+              class_name: subject,
+              start_time,
+              room: room || 'TBA',
+            },
+          });
 
-            sentNotifications.set(notificationKey, Date.now());
-            notificationCount++;
-            console.log(`✅ Sent start notification to ${email} for ${subject}`);
-          }
+          sentNotifications.set(notificationKey, Date.now());
+          notificationCount++;
+          console.log(`✅ Sent start notification to ${email} for ${subject}`);
         }
       }
     }
@@ -168,10 +164,13 @@ async function sendNotification(fcmToken, { title, body, data }) {
 }
 
 /**
- * Parse time string (HH:MM) to minutes since midnight
+ * Parse time string (HH:MM or HH:MM:SS) to minutes since midnight
  */
 function parseTime(timeString) {
-  const [hours, minutes] = timeString.split(':').map(Number);
+  if (!timeString) return 0;
+  const parts = timeString.split(':').map(Number);
+  const hours = parts[0] || 0;
+  const minutes = parts[1] || 0;
   return hours * 60 + minutes;
 }
 
@@ -191,16 +190,16 @@ function cleanupOldNotifications() {
 /**
  * Start the scheduler
  */
-function startScheduler(db) {
+function startScheduler() {
   // Run every 2 minutes
   cron.schedule('*/2 * * * *', () => {
-    checkClasses(db);
+    checkClasses();
   });
 
   console.log('✅ Class notification scheduler started (runs every 2 minutes)');
 
   // Run immediately on start
-  checkClasses(db);
+  checkClasses();
 }
 
 module.exports = { startScheduler };

@@ -136,13 +136,10 @@ async function start() {
             const db = await getDb(); 
             await validateSchema(); // 🛡️ Ensure structural integrity
             await scheduleV3Jobs();
-            // Start class notification scheduler if Firebase credentials exist
-            if (fs.existsSync('./firebase-credentials.json')) {
-                const { startScheduler } = require('./scheduler/classNotifier');
-                startScheduler(db);
-            } else {
-                console.log('[SCHEDULER] firebase-credentials.json not found, skipping notification scheduler');
-            }
+            // Start class notification scheduler if credentials found
+            const { startScheduler } = require('./scheduler/classNotifier');
+            startScheduler();
+            
             console.log('[READY] ASTRA Services Synced.');
         } catch (err) {
             console.error('[CRITICAL] Startup Failed:', err.message);
