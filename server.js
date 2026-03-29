@@ -22,6 +22,7 @@ const { scheduleV3Jobs } = require('./services/workflowEngine');
 const { checkVersion } = require('./controllers/versionController');
 const socketService = require('./services/socketService');
 const http = require('http');
+const fs = require('fs');
 
 const path = require('path');
 
@@ -132,9 +133,16 @@ async function start() {
     server.listen(PORT, async () => {
         console.log(`🚀 ASTRA Backend running on http://0.0.0.0:${PORT}`);
         try {
-            await getDb(); 
+            const db = await getDb(); 
             await validateSchema(); // 🛡️ Ensure structural integrity
-            await scheduleV3Jobs(); 
+            await scheduleV3Jobs();
+            // Start class notification scheduler if Firebase credentials exist
+            if (fs.existsSync('./firebase-credentials.json')) {
+                const { startScheduler } = require('./scheduler/classNotifier');
+                startScheduler(db);
+            } else {
+                console.log('[SCHEDULER] firebase-credentials.json not found, skipping notification scheduler');
+            }
             console.log('[READY] ASTRA Services Synced.');
         } catch (err) {
             console.error('[CRITICAL] Startup Failed:', err.message);

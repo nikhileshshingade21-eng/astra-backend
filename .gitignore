@@ -4,3 +4,5 @@ database.sqlite
 uploads/
 .env
 *.log
+
+firebase-credentials.json
