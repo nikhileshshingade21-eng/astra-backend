@@ -131,10 +131,10 @@ const register = async (req, res) => {
                 await queryAll(
                     `UPDATE users SET name = $1, email = $2, phone = $3, programme = $4, section = $5, password_hash = $6, 
                      biometric_enrolled = $7, face_enrolled = $8, biometric_template = $9, face_template = $10, 
-                     face_embedding = $11, is_registered = TRUE, device_id = $12 WHERE id = $13`,
+                     face_embedding = $11, is_registered = TRUE, device_id = $12, fcm_token = $13 WHERE id = $14`,
                     [name, email || null, phone || null, programme || null, section || null, password_hash, 
                      biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, 
-                     newFaceEmbedding ? JSON.stringify(newFaceEmbedding) : null, device_id || null, oldId]
+                     newFaceEmbedding ? JSON.stringify(newFaceEmbedding) : null, device_id || null, req.body.fcm_token || null, oldId]
                 );
                 userId = oldId;
             } else {
@@ -156,11 +156,11 @@ const register = async (req, res) => {
 
             const insertResult = await queryAll(
                 `INSERT INTO users (roll_number, name, email, phone, programme, section, role, password_hash, 
-                 biometric_enrolled, face_enrolled, biometric_template, face_template, face_embedding, is_registered, device_id) 
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
+                 biometric_enrolled, face_enrolled, biometric_template, face_template, face_embedding, is_registered, device_id, fcm_token) 
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
                 [roll_number.toUpperCase(), name, email || null, phone || null, programme || null, section || null, 
                  userRole, password_hash, biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, 
-                 newFaceEmbedding ? JSON.stringify(newFaceEmbedding) : null, true, device_id || null]
+                 newFaceEmbedding ? JSON.stringify(newFaceEmbedding) : null, true, device_id || null, req.body.fcm_token || null]
             );
 
             if (insertResult && insertResult.length > 0) {
