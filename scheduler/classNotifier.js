@@ -5,9 +5,22 @@
 
 const cron = require('node-cron');
 const admin = require('firebase-admin');
+const fs = require('fs');
+const path = require('path');
 
-// Initialize Firebase Admin SDK
-const serviceAccount = require('../firebase-credentials.json');
+// Initialize Firebase Admin SDK (supports both file and env variable)
+let serviceAccount;
+const credPath = path.join(__dirname, '..', 'firebase-credentials.json');
+
+if (fs.existsSync(credPath)) {
+  serviceAccount = require(credPath);
+} else if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+  serviceAccount = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+} else {
+  console.error('❌ No Firebase credentials found. Scheduler will not start.');
+  module.exports = { startScheduler: () => {} };
+  return;
+}
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
