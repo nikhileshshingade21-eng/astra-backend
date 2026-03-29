@@ -117,7 +117,8 @@ app.use((req, res) => res.status(404).json({ error: 'Endpoint not found' }));
 
 app.use((err, req, res, next) => {
     console.error(`[ERROR] ${req.method} ${req.path}:`, err.message);
-    res.status(err.status || 500).json({ error: process.env.NODE_ENV === 'production' ? 'Internal error' : err.message });
+    // DEBUG: Temporarily return err.message in production to catch the registration crash
+    res.status(err.status || 500).json({ error: err.message || 'Internal error' });
 });
 
 const { validateSchema } = require('./schema_validator');

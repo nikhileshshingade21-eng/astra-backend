@@ -75,10 +75,24 @@ const register = async (req, res) => {
         // --- FACE BIOMETRIC UPGRADE: Duplicate Detection ---
         let newFaceEmbedding = null;
         if (face_image) {
-            console.log(`[👤 FACE_REG] Extracting embedding for ${roll_number}...`);
-            const extractRes = await extractEmbedding(face_image);
+            let extractRes;
+            try {
+                console.log(`[👤 FACE_REG] Extracting embedding for ${roll_number} using ${process.env.AI_ENGINE_URL || 'localhost:8000'}...`);
+                extractRes = await extractEmbedding(face_image);
+            } catch (aiErr) {
+                console.error(`[AI_FATAL] Face service unreachable:`, aiErr.message);
+                return res.status(503).json({ 
+                    error: 'FACE_SERVICE_OFFLINE', 
+                    message: 'The AI Face Recognition service is currently unreachable. Registration cannot continue. Please contact technical support.' 
+                });
+            }
+
             if (!extractRes.success) {
-                return res.status(422).json({ error: 'FACE_CAPTURE_INVALID', message: extractRes.error || 'Could not extract high-quality facial features. Please ensure good lighting.' });
+                console.warn(`[👤 FACE_REG] Extraction failed for ${roll_number}:`, extractRes.error);
+                return res.status(422).json({ 
+                    error: 'FACE_CAPTURE_INVALID', 
+                    message: extractRes.error || 'Could not extract high-quality facial features. Please ensure good lighting.' 
+                });
             }
             newFaceEmbedding = extractRes.embedding;
 
