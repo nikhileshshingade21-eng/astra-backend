@@ -813,6 +813,39 @@ function formatTime(timeStr) {
     return `${hours}:${m} ${ampm}`;
 }
 
+// ─── GOOD NIGHT DIGEST (Automated Nightly Sign-off) ───────────────────────
+
+async function sendGoodNightDigest() {
+    try {
+        console.log('[NIGHT DIGEST] Running automated good night broadcast...');
+        const users = await queryAll("SELECT id, name, roll_number, fcm_token FROM users WHERE fcm_token IS NOT NULL AND fcm_token != ''");
+        
+        let successCount = 0;
+        for (const user of users) {
+             const firstName = user.name ? user.name.split(' ')[0] : '';
+             const title = firstName ? `🌙 Good Night, ${firstName}!` : `🌙 Good Night!`;
+             
+             try {
+                 await sendSmartNotification(
+                     user.id,
+                     title,
+                     'You crushed it today. ASTRA is going into sleep mode — get some rest and see you tomorrow! ✨',
+                     'broadcast',
+                     'good_night',
+                     {},
+                     { forcePush: true } // Guarantee FCM delivery
+                 );
+                 successCount++;
+             } catch (err) {
+                 // Ignore individual push errors
+             }
+        }
+        console.log(`[NIGHT DIGEST] Completed. Sent nicely to ${successCount} devices.`);
+    } catch (e) {
+        console.error('[NIGHT DIGEST] Failed completely:', e.message);
+    }
+}
+
 // ─── EXPORTS ────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -821,6 +854,7 @@ module.exports = {
     checkClassNotifications,
     checkAttendanceNudges,
     sendMorningDigest,
+    sendGoodNightDigest,
     checkStreaks,
     checkInactiveUsers,
     pickCopy,

@@ -18,6 +18,7 @@ const {
     checkClassNotifications,
     checkAttendanceNudges,
     sendMorningDigest,
+    sendGoodNightDigest,
     checkStreaks,
     checkInactiveUsers,
 } = require('../services/smartNotifyService');
@@ -86,6 +87,16 @@ function startSmartScheduler() {
         }
     }, { timezone: 'Asia/Kolkata' });
     console.log('  ✅ Inactivity detection: 10:00 PM IST');
+
+    // ─── GOOD NIGHT DIGEST: 10:30 PM IST daily ──────────────────────────
+    cron.schedule('30 22 * * *', async () => {
+        try {
+            await sendGoodNightDigest();
+        } catch (e) {
+            console.error('[SMART SCHEDULER] Good night digest error:', e.message);
+        }
+    }, { timezone: 'Asia/Kolkata' });
+    console.log('  ✅ Good night digest: 10:30 PM IST');
     
     console.log('🧠 [SMART SCHEDULER] All engines online. ASTRA is now ALIVE.');
     
