@@ -3,6 +3,13 @@ const { getDb, queryAll } = require('../database_module.js');
 const getNotifications = async (req, res) => {
     try {
         const db = await getDb();
+        
+        // 🧹 Auto-delete notifications older than 7 days
+        await queryAll(
+            `DELETE FROM notifications WHERE user_id = $1 AND created_at < NOW() - INTERVAL '7 days'`,
+            [req.user.id]
+        );
+
         const result = await queryAll(
             `SELECT id, title, message, type, is_read, created_at 
              FROM notifications WHERE user_id = $1 
