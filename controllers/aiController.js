@@ -53,56 +53,12 @@ const getAiReport = async (req, res) => {
 }
 
 const verifyIdentity = async (req, res) => {
-    try {
-        const { rollNumber, imageBase64 } = req.body;
-
-        // Input validation
-        if (!rollNumber || typeof rollNumber !== 'string') {
-            return res.status(400).json({ verified: false, error: 'Roll number is required' });
-        }
-        if (!imageBase64 || typeof imageBase64 !== 'string') {
-            return res.status(400).json({ verified: false, error: 'Image data is required' });
-        }
-        // SEC-012 FIX: Limit base64 payload size (5MB max)
-        if (imageBase64.length > 5 * 1024 * 1024) {
-            return res.status(400).json({ verified: false, error: 'Image data too large (max 5MB)' });
-        }
-
-        const db = await getDb();
-
-        // 1. Fetch the encrypted target vector from DB
-        const userRes = await queryAll('SELECT biometric_template FROM users WHERE roll_number = $1', [rollNumber.toUpperCase()]);
-        
-        if (userRes.length === 0) {
-            return res.status(404).json({ error: 'Student not found or not enrolled' });
-        }
-
-        const encryptedTemplate = userRes[0].biometric_template;
-        if (!encryptedTemplate) {
-            return res.status(400).json({ error: 'Biometric template not found. Please register first.' });
-        }
-
-        // 2. Decrypt the template
-        const { decrypt } = require('../utils/encryption');
-        const decryptedStr = decrypt(encryptedTemplate);
-        const templateObj = JSON.parse(decryptedStr);
-        const targetBase64 = templateObj.data; // The registered base64 string
-
-        // 3. Call AI Engine for deep verification
-        try {
-            const result = await aiService.verifyFace(targetBase64, imageBase64);
-            res.json(result);
-        } catch (aiErr) {
-            // SEC-001 FIX: AI Engine unreachable — DENY verification (never auto-pass)
-            console.warn("AI Engine unreachable:", aiErr.message);
-            res.status(503).json({ verified: false, confidence: 0, method: 'denied', message: 'AI Engine unavailable. Verification cannot proceed. Try again later.' });
-        }
-
-    } catch (err) {
-        // SEC-001 FIX: Any error — DENY verification (never auto-pass)
-        console.error("Identity Verification Error:", err.message);
-        res.status(500).json({ verified: false, confidence: 0, method: 'error', message: 'Verification failed. Please contact admin.' });
-    }
+    // SEC-001 STRICT UPGRADE: Custom AI Face recognition was deprecated.
+    // The mobile application now enforces OS-level BIOMETRIC_STRONG hardware verification keys directly.
+    return res.status(410).json({ 
+        verified: false, 
+        error: 'DEPRECATED: Custom Face Verification is offline. ASTRA now relies exclusively on strictly-bound Native OS Biometrics (Face ID / Fingerprint).' 
+    });
 };
 
 const chat = async (req, res) => {

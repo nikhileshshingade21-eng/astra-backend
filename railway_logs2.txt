@@ -1,0 +1,10 @@
+﻿Starting Container
+[≡ƒ¢í∩╕Å SCHEMA] Starting deep integrity check...
+[DB] Connected to: aws-1-ap-south-1.pooler.supabase.com | SSL: true | NODE_ENV: production 
+Γ£à [CACHE] Redis Connected (Background)
+[REDIS] BullMQ Stack Ready.
+[PORT] Detected Redis port 6379 as PORT ΓÇö overriding to 3000. Set RAILWAY_PORT or PORT_HTTP to fix.
+≡ƒÜÇ ASTRA Backend running on http://0.0.0.0:3000
+[≡ƒ¢í∩╕Å SCHEMA] Integrity check complete. Protocol: GREEN.
+[ASTRA V3] Autonomous Schedules Active.
+[CRITICAL] Startup Failed: Failed to parse private key: Error: Invalid PEM formatted message.

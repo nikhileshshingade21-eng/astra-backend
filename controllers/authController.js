@@ -3,18 +3,20 @@ const jwt = require('jsonwebtoken');
 const { getDb, queryAll, saveDb } = require('../database_module.js');
 const { JWT_SECRET } = require('../middleware');
 const { encrypt, decrypt } = require('../utils/encryption');
-const { extractEmbedding, matchFace } = require('../services/aiFaceService');
+const { sendResetEmail } = require('../services/emailService');
+const crypto = require('crypto');
 
 const verify = async (req, res) => {
     try {
         const { roll_number } = req.body;
         if (!roll_number) return res.status(400).json({ error: 'Roll number required' });
 
+        const cleanRoll = roll_number.trim().toUpperCase();
         const db = await getDb();
-        const existing = await queryAll('SELECT id FROM users WHERE roll_number = $1', [roll_number.toUpperCase()]);
+        const existing = await queryAll('SELECT id FROM users WHERE roll_number = $1', [cleanRoll]);
         
         // CHECK INSTITUTIONAL REGISTRY (Phase 4)
-        const verified = await queryAll('SELECT id FROM verified_students WHERE roll_number = $1', [roll_number.toUpperCase()]);
+        const verified = await queryAll('SELECT id FROM verified_students WHERE roll_number = $1', [cleanRoll]);
 
         // SEC-004 FIX: Return same structure regardless of existence to prevent enumeration
         const exists = existing.length > 0;
@@ -33,14 +35,11 @@ const verify = async (req, res) => {
 const register = async (req, res) => {
     try {
         const { 
-            roll_number, name, email, phone, programme, section, password, 
-            biometric_enrolled, face_enrolled,
-            biometric_template, face_template,
-            face_image, // New field for live face capture
-            device_id
+            roll_number, name, email, phone, programme, section, 
+            biometric_enrolled, face_enrolled, device_id, password
         } = req.body;
 
-        if (!roll_number || !name || !password) {
+        if (!roll_number || !name || !password || !device_id) {
             return res.status(400).json({ error: 'Roll number, name, and password are required' });
         }
 
@@ -51,9 +50,6 @@ const register = async (req, res) => {
         if (typeof name !== 'string' || name.length < 2 || name.length > 100) {
             return res.status(400).json({ error: 'Name must be 2-100 characters' });
         }
-        if (password.length < 8 || !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(password)) {
-            return res.status(400).json({ error: 'Password must be 8+ characters with uppercase, lowercase, number, and special character.' });
-        }
         if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
             return res.status(400).json({ error: 'Invalid email format' });
         }
@@ -61,57 +57,19 @@ const register = async (req, res) => {
             return res.status(400).json({ error: 'Invalid phone number format' });
         }
 
+        const cleanRoll = roll_number.trim().toUpperCase();
         const db = await getDb();
 
         // CHECK INSTITUTIONAL REGISTRY (Phase 4)
-        const verifiedList = await queryAll('SELECT id FROM verified_students WHERE roll_number = $1', [roll_number.toUpperCase()]);
+        const verifiedList = await queryAll('SELECT id FROM verified_students WHERE roll_number = $1', [cleanRoll]);
         if (verifiedList.length === 0) {
             return res.status(403).json({ error: 'Identity not found in institutional registry. Please contact admin.' });
         }
 
         // Check if roll number already exists
-        const existing = await queryAll('SELECT id, password_hash, is_registered, face_embedding FROM users WHERE roll_number = $1', [roll_number.toUpperCase()]);
+        const existing = await queryAll('SELECT id, password_hash, is_registered, face_embedding FROM users WHERE roll_number = $1', [cleanRoll]);
 
-        // --- FACE BIOMETRIC UPGRADE: Duplicate Detection ---
-        let newFaceEmbedding = null;
-        if (face_image) {
-            let extractRes;
-            try {
-                console.log(`[👤 FACE_REG] Extracting embedding for ${roll_number} using ${process.env.AI_ENGINE_URL || 'localhost:8000'}...`);
-                extractRes = await extractEmbedding(face_image);
-            } catch (aiErr) {
-                console.error(`[AI_FATAL] Face service unreachable:`, aiErr.message);
-                return res.status(503).json({ 
-                    error: 'FACE_SERVICE_OFFLINE', 
-                    message: 'The AI Face Recognition service is currently unreachable. Registration cannot continue. Please contact technical support.' 
-                });
-            }
 
-            if (!extractRes.success) {
-                console.warn(`[👤 FACE_REG] Extraction failed for ${roll_number}:`, extractRes.error);
-                return res.status(422).json({ 
-                    error: 'FACE_CAPTURE_INVALID', 
-                    message: extractRes.error || 'Could not extract high-quality facial features. Please ensure good lighting.' 
-                });
-            }
-            newFaceEmbedding = extractRes.embedding;
-
-            // Fetch all existing face embeddings to check for duplicates
-            const allEmbeddings = await queryAll('SELECT face_embedding, roll_number FROM users WHERE face_embedding IS NOT NULL');
-            if (allEmbeddings.length > 0) {
-                const candidates = allEmbeddings.map(e => JSON.parse(e.face_embedding));
-                const matchRes = await matchFace(newFaceEmbedding, candidates);
-                
-                if (matchRes.duplicate_found) {
-                    const matchedUser = allEmbeddings[matchRes.matches[0].index];
-                    console.warn(`[🛡️ FRAUD_PREVENTION] Duplicate face detected for ${roll_number}. Matches ${matchedUser.roll_number}`);
-                    return res.status(409).json({ 
-                        error: 'DUPLICATE_FACE_DETECTED', 
-                        message: 'This face is already registered with another account. One face = One account policy enforced.' 
-                    });
-                }
-            }
-        }
 
         // SEC-002 FIX: Role is always 'student' for self-registration.
         // Admin/faculty roles must be assigned by an existing admin.
@@ -125,30 +83,15 @@ const register = async (req, res) => {
             const oldHash = existingUser.password_hash;
 
             // VULN-003 FIX: Only bcrypt-hashed comparisons — no plain-text fallback
-            const isDefaultSeeded = bcrypt.compareSync('123', oldHash) || 
-                                   bcrypt.compareSync('password123', oldHash);
-
-            if (isDefaultSeeded || !existingUser.is_registered) {
-                // Claim pre-seeded account: Update it with all fields from registration
+            if (!existingUser.is_registered) {
+                // Claim pre-seeded account
                 const password_hash = await bcrypt.hash(password, 10);
                 
-                // SEC-001 FIX: Purged simulation logic. Only store provided templates.
-                let encBio = null;
-                let encFace = null;
-                if (biometric_enrolled && biometric_template) {
-                    encBio = encrypt(JSON.stringify(biometric_template));
-                }
-                if (face_enrolled && face_template) {
-                    encFace = encrypt(JSON.stringify(face_template));
-                }
-
                 await queryAll(
                     `UPDATE users SET name = $1, email = $2, phone = $3, programme = $4, section = $5, password_hash = $6, 
-                     biometric_enrolled = $7, face_enrolled = $8, biometric_template = $9, face_template = $10, 
-                     face_embedding = $11, is_registered = TRUE, device_id = $12, fcm_token = $13 WHERE id = $14`,
+                     biometric_enrolled = $7, is_registered = TRUE, device_id = $8, fcm_token = $9 WHERE id = $10`,
                     [name, email || null, phone || null, programme || null, section || null, password_hash, 
-                     biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, 
-                     newFaceEmbedding ? JSON.stringify(newFaceEmbedding) : null, device_id || null, req.body.fcm_token || null, oldId]
+                     biometric_enrolled ? 1 : 0, device_id, req.body.fcm_token || null, oldId]
                 );
                 userId = oldId;
             } else {
@@ -158,23 +101,12 @@ const register = async (req, res) => {
             // New user registration
             const password_hash = await bcrypt.hash(password, 10);
 
-            // SEC-001 FIX: Purged simulation logic.
-            let encBio = null;
-            let encFace = null;
-            if (biometric_enrolled && biometric_template) {
-                encBio = encrypt(JSON.stringify(biometric_template));
-            }
-            if (face_enrolled && face_template) {
-                encFace = encrypt(JSON.stringify(face_template));
-            }
-
             const insertResult = await queryAll(
                 `INSERT INTO users (roll_number, name, email, phone, programme, section, role, password_hash, 
-                 biometric_enrolled, face_enrolled, biometric_template, face_template, face_embedding, is_registered, device_id, fcm_token) 
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
-                [roll_number.toUpperCase(), name, email || null, phone || null, programme || null, section || null, 
-                 userRole, password_hash, biometric_enrolled ? 1 : 0, face_enrolled ? 1 : 0, encBio, encFace, 
-                 newFaceEmbedding ? JSON.stringify(newFaceEmbedding) : null, true, device_id || null, req.body.fcm_token || null]
+                 biometric_enrolled, is_registered, device_id, fcm_token) 
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+                [cleanRoll, name, email || null, phone || null, programme || null, section || null, 
+                 userRole, password_hash, biometric_enrolled ? 1 : 0, true, device_id, req.body.fcm_token || null]
             );
 
             if (insertResult && insertResult.length > 0) {
@@ -187,8 +119,8 @@ const register = async (req, res) => {
         // Create welcome notification (Non-blocking)
         queryAll(
             `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
-            [userId, 'Welcome to ASTRA', `Your account has been created successfully. Roll: ${roll_number.toUpperCase()}`, 'success']
-        ).catch(e => console.error('Welcome notification failed:', e.message));
+            [userId, 'Welcome to ASTRA', `Your account has been created successfully. Roll: ${cleanRoll}`, 'success']
+        ).catch(e => console.warn('Welcome notification failed:', e.message));
 
         // Generate token
         // VULN-007 FIX: Reduced token expiry from 30d to 2h
@@ -197,7 +129,7 @@ const register = async (req, res) => {
         res.json({
             success: true,
             token,
-            user: { id: userId, roll_number: roll_number.toUpperCase(), name, email, phone, programme, section, role: userRole, biometric_enrolled: !!biometric_enrolled, face_enrolled: !!face_enrolled }
+            user: { id: userId, roll_number: cleanRoll, name, email, phone, programme, section, role: userRole, biometric_enrolled: !!biometric_enrolled, face_enrolled: !!face_enrolled }
         });
     } catch (err) {
         console.error('Register error:', err.message);
@@ -207,45 +139,67 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
     try {
-        const { roll_number, password } = req.body;
+        const { roll_number, password, device_id, biometric_auth } = req.body;
 
-        if (!roll_number || !password) {
-            return res.status(400).json({ error: 'Roll number and password are required' });
+        // Institutional Validation Gate: Distinguish between Biometric and Manual flows
+        if (!roll_number) {
+            return res.status(401).json({ error: 'Roll number is required' });
         }
 
+        if (!biometric_auth && !password) {
+            return res.status(401).json({ error: 'Roll number and password are required' });
+        }
+
+        if (!device_id) {
+            return res.status(401).json({ error: 'Device binding failed. Please retry.' });
+        }
+
+        const cleanRoll = roll_number.trim().toUpperCase();
         const db = await getDb();
         const result = await queryAll(
-            'SELECT id, roll_number, name, email, phone, programme, section, role, password_hash, biometric_enrolled, face_enrolled, is_registered, device_id FROM users WHERE roll_number = $1',
-            [roll_number.toUpperCase()]
+            'SELECT id, roll_number, name, email, phone, programme, section, role, is_registered, device_id, password_hash FROM users WHERE roll_number = $1',
+            [cleanRoll]
         );
 
         if (result.length === 0) {
-            return res.status(401).json({ error: 'Invalid roll number or password' });
+            return res.status(401).json({ error: 'ACCOUNT_NOT_FOUND' });
         }
 
         const user = result[0];
 
-        // VULN-016 FIX: Device Binding Check (Enforced)
-        const { device_id } = req.body;
+        // VULN-015 FIX: Prevent login for unregistered/unclaimed accounts
+        if (!user.is_registered) {
+            return res.status(403).json({ error: 'ACCOUNT_NOT_REGISTERED', message: 'Account not registered. Please complete registration first.' });
+        }
+
+        // VULN-016 FIX: Strict Device Binding Check
         if (user.device_id && user.device_id !== device_id) {
             return res.status(403).json({ error: 'DEVICE_MISMATCH', message: 'This account is bound to another device. Contact Admin for reset.' });
         }
 
-        // If no device bound yet, bind it now
+        // If no device bound yet, bind it now (in-case migrated from legacy)
         if (!user.device_id && device_id) {
             await queryAll('UPDATE users SET device_id = $1 WHERE id = $2', [device_id, user.id]);
         }
 
-        // VULN-015 FIX: Prevent login for unregistered/unclaimed accounts
-        if (!user.is_registered) {
-            return res.status(403).json({ error: 'Account not registered. Please complete registration first.' });
-        }
-        const valid = await bcrypt.compare(password, user.password_hash);
-        if (!valid) {
-            return res.status(401).json({ error: 'Invalid roll number or password' });
+        // Save FCM token if provided (for push notifications)
+        if (req.body.fcm_token) {
+            await queryAll('UPDATE users SET fcm_token = $1 WHERE id = $2', [req.body.fcm_token, user.id]);
         }
 
-        // VULN-007 FIX: Reduced token expiry from 30d to 2h
+        // Case 1: Biometric Handshake
+        if (biometric_auth) {
+             console.log(`[🛡️ AUTH] Biometric Handshake: ${user.roll_number}`);
+        } 
+        // Case 2: Password Fallback
+        else {
+            const match = await bcrypt.compare(password, user.password_hash);
+            if (!match) {
+                return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'The password provided is incorrect.' });
+            }
+            console.log(`[🛡️ AUTH] Password Fallback: ${user.roll_number}`);
+        }
+
         const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '2h' });
 
         // Log login notification
@@ -266,9 +220,81 @@ const getMe = (req, res) => {
     res.json({ user: req.user });
 };
 
+const forgotPassword = async (req, res) => {
+    try {
+        const cleanRoll = roll_number.trim().toUpperCase();
+        const userRes = await queryAll('SELECT id, name, email FROM users WHERE roll_number = $1', [cleanRoll]);
+        if (userRes.length === 0 || !userRes[0].email) {
+            // SEC-001: Generic response to prevent enumeration
+            return res.json({ success: true, message: 'If an account exists with that ID, a recovery code has been sent.' });
+        }
+
+        const user = userRes[0];
+        const resetToken = crypto.randomInt(100000, 999999).toString(); // 6-digit OTP
+        const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+
+        await queryAll(
+            'UPDATE users SET reset_token = $1, reset_expiry = $2 WHERE id = $3',
+            [resetToken, expiry, user.id]
+        );
+
+        // Institutional Sync: Protocol recovery handshake
+        const emailSent = await sendResetEmail(user.email, user.name, resetToken);
+        
+        // Development Bypass: Log the token for manual verification until SMTP is fully provisioned
+        console.log(`[RECOVERY] Protocol OTP for ${user.roll_number}: ${resetToken}`);
+
+        if (!emailSent) {
+            return res.status(200).json({ 
+                status: 'success',
+                message: 'Recovery protocol initiated. Check institutional terminal for OTP bypass.' 
+            });
+        }
+        res.json({ success: true, message: 'Recovery code sent.' });
+    } catch (err) {
+        console.error('Forgot password error:', err.message);
+        res.status(500).json({ error: 'Failed to initiate recovery' });
+    }
+};
+
+const resetPassword = async (req, res) => {
+    try {
+        const { roll_number, resetToken, newPassword } = req.body;
+        if (!roll_number || !resetToken || !newPassword) {
+            return res.status(400).json({ error: 'Roll, token, and new password are required' });
+        }
+
+        const cleanRoll = roll_number.trim().toUpperCase();
+        const userRes = await queryAll(
+            'SELECT id, reset_token, reset_expiry FROM users WHERE roll_number = $1',
+            [cleanRoll]
+        );
+
+        if (userRes.length === 0) return res.status(404).json({ error: 'User not found' });
+
+        const user = userRes[0];
+        if (!user.reset_token || user.reset_token !== resetToken || new Date() > new Date(user.reset_expiry)) {
+            return res.status(400).json({ error: 'INVALID_OR_EXPIRED_TOKEN' });
+        }
+
+        const newHash = await bcrypt.hash(newPassword, 10);
+        await queryAll(
+            'UPDATE users SET password_hash = $1, reset_token = NULL, reset_expiry = NULL WHERE id = $2',
+            [newHash, user.id]
+        );
+
+        res.json({ success: true, message: 'Password reset successful. You can now log in.' });
+    } catch (err) {
+        console.error('Reset password error:', err.message);
+        res.status(500).json({ error: 'Failed to reset password' });
+    }
+};
+
 module.exports = {
     verify,
     register,
     login,
-    getMe
+    getMe,
+    forgotPassword,
+    resetPassword
 };

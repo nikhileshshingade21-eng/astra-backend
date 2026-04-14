@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { authMiddleware } = require('../middleware');
-const { addZone, listZones, listUsers, getStats, getTracker, pingClass, uploadStudentData, getThreatLogs, getBannedUsers, unbanUser, toggleZone, deleteZone } = require('../controllers/adminController');
+const { addZone, listZones, listUsers, getStats, getTracker, pingClass, uploadStudentData, getThreatLogs, getBannedUsers, unbanUser, toggleZone, deleteZone, resetDevice } = require('../controllers/adminController');
 
 // Multer Configuration for Secure Uploads (Phase 1)
 const storage = multer.memoryStorage();
@@ -72,5 +72,8 @@ router.get('/bans', authMiddleware, adminOnly, getBannedUsers);
 
 // POST /api/admin/unban — Lift a ban (admin review)
 router.post('/unban', authMiddleware, adminOnly, unbanUser);
+
+// POST /api/admin/reset-device — Clear device binding for a student
+router.post('/reset-device', authMiddleware, adminOnly, resetDevice);
 
 module.exports = router;

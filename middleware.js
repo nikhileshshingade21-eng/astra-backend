@@ -25,7 +25,7 @@ async function authMiddleware(req, res, next) {
         const cacheKey = `user_session_${decoded.userId}`;
         const sessionData = await getOrSetCache(cacheKey, 60, async () => {
             const db = await getDb();
-            const userResult = await queryAll('SELECT id, roll_number, name, email, phone, programme, section, role FROM users WHERE id = $1', [decoded.userId]);
+            const userResult = await queryAll('SELECT id, roll_number, name, email, phone, programme, section, role, device_id FROM users WHERE id = $1', [decoded.userId]);
             
             if (!userResult || userResult.length === 0) {
                 return null;
@@ -33,7 +33,8 @@ async function authMiddleware(req, res, next) {
             const row = userResult[0];
             const user = {
                 id: row.id, roll_number: row.roll_number, name: row.name, email: row.email,
-                phone: row.phone, programme: row.programme, section: row.section, role: row.role
+                phone: row.phone, programme: row.programme, section: row.section, role: row.role,
+                device_id: row.device_id
             };
             
             const ban = await isUserBanned(user.id);

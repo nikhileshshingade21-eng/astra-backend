@@ -25,6 +25,8 @@ async function validateSchema() {
                 face_template TEXT,
                 is_registered BOOLEAN DEFAULT FALSE,
                 device_id TEXT,
+                reset_token TEXT,
+                reset_expiry TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `,
@@ -153,6 +155,14 @@ async function validateSchema() {
                 if (!colNames.includes('device_id')) {
                     console.log('[🛡️ SCHEMA] Adding missing column: users.device_id');
                     await queryAll('ALTER TABLE users ADD COLUMN device_id TEXT');
+                }
+                if (!colNames.includes('reset_token')) {
+                    console.log('[🛡️ SCHEMA] Adding missing column: users.reset_token');
+                    await queryAll('ALTER TABLE users ADD COLUMN reset_token TEXT');
+                }
+                if (!colNames.includes('reset_expiry')) {
+                    console.log('[🛡️ SCHEMA] Adding missing column: users.reset_expiry');
+                    await queryAll('ALTER TABLE users ADD COLUMN reset_expiry TIMESTAMP');
                 }
             }
 

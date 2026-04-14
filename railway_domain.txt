@@ -1,0 +1,2 @@
+﻿Domains already exist on the service:
+≡ƒÜÇ https://astra-backend-production-a16d.up.railway.app

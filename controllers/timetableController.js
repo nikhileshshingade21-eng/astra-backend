@@ -5,22 +5,41 @@ const { getLocalDate } = require('../utils/dateUtils');
 const getTodayClasses = async (req, res) => {
     try {
         const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const targetDay = (req.query.day || days[new Date().getDay()]).trim();
-        const todayDate = getLocalDate();
+        const now = new Date();
+        const targetDayName = (req.query.day || days[now.getDay()]).trim();
         
-        // 🛡️ ASTRA V2: Prioritize query overrides with robust trimming
+        // Calculate the actual DATE for the requested weekday in the current week
+        // We anchor to the current week (Monday-based stack)
+        const dayOfWeek = now.getDay();
+        const mondayOffset = dayOfWeek === 0 ? 1 : -(dayOfWeek - 1);
+        const MondayDate = new Date(now);
+        MondayDate.setDate(now.getDate() + mondayOffset);
+        
+        const targetDayIndex = days.indexOf(targetDayName);
+        const targetOffset = targetDayIndex === 0 ? 6 : targetDayIndex - 1; // 0=Mon, 5=Sat
+        const targetDateObj = new Date(MondayDate);
+        targetDateObj.setDate(MondayDate.getDate() + targetOffset);
+        const targetDate = targetDateObj.toISOString().split('T')[0];
+
+        // CHECK ACADEMIC CALENDAR
+        const calendarEvents = await queryAll(
+            'SELECT event_name, type, is_system_holiday FROM academic_calendar WHERE $1 BETWEEN start_date AND end_date LIMIT 1',
+            [targetDate]
+        );
+        const calendarEvent = calendarEvents.length > 0 ? calendarEvents[0] : null;
+
         const programme = (req.query.programme || req.user.programme || 'all').trim();
         const section = (req.query.section || req.user.section || 'all').trim();
 
-        console.log(`[CHRONO_SYNC] Target: ${targetDay} | P: ${programme} | S: ${section}`);
+        console.log(`[CHRONO_SYNC] Target: ${targetDayName} | P: ${programme} | S: ${section}`);
 
-        const cacheKey = `timetable:${targetDay}:${programme}:${section}`;
+        const cacheKey = `timetable:${targetDayName}:${programme}:${section}`;
         const shouldRefresh = req.query.refresh === 'true';
         
         const fetchScheduleFromDb = async () => {
              // 🛡️ ASTRA V2 SMART_MATCH: Match by section OR (if section is null/all) by programme
              // This ensures students in "CS" get classes marked "CS" or "B.Tech CSC"
-             console.log(`[DB_QUERY] Fetching for ${targetDay} | S: ${section} | P: ${programme}`);
+             console.log(`[DB_QUERY] Fetching for ${targetDayName} | S: ${section} | P: ${programme}`);
              
              const result = await queryAll(
                  `SELECT c.id, c.code, c.name, c.faculty_name, c.room, c.start_time, c.end_time, c.section, c.programme
@@ -37,17 +56,17 @@ const getTodayClasses = async (req, res) => {
                       )
                   )
                   ORDER BY c.start_time`,
-                 [targetDay, section, programme]
+                 [targetDayName, section, programme]
              );
 
              if (!result || result.length === 0) {
-                 console.log(`[CHRONO_FALLBACK] specific match failed for ${targetDay}. Doing broad search.`);
+                 console.log(`[CHRONO_FALLBACK] specific match failed for ${targetDayName}. Doing broad search.`);
                  return await queryAll(
                      `SELECT c.id, c.code, c.name, c.faculty_name, c.room, c.start_time, c.end_time
                       FROM classes c 
                       WHERE TRIM(LOWER(c.day)) = TRIM(LOWER($1)) 
                       ORDER BY c.start_time`,
-                     [targetDay]
+                     [targetDayName]
                  );
              }
              return result;
@@ -62,8 +81,8 @@ const getTodayClasses = async (req, res) => {
             const { invalidateCache } = require('../services/redisService');
             // Sweep BOTH the specific key and the day pattern to ensure no stale overlaps persist
             await invalidateCache(cacheKey);
-            await invalidateCache(`timetable:${targetDay}:*`);
-            console.log(`[CACHE_SWEEP] Invalidated: ${cacheKey} and timetable:${targetDay}:*`);
+            await invalidateCache(`timetable:${targetDayName}:*`);
+            console.log(`[CACHE_SWEEP] Invalidated: ${cacheKey} and timetable:${targetDayName}:*`);
         }
 
         const result = await getCachedData(cacheKey, 3600, fetchScheduleFromDb);
@@ -95,7 +114,12 @@ const getTodayClasses = async (req, res) => {
             console.log('No classes found for this criteria');
         }
 
-        res.json({ day: targetDay, date: todayDate, classes });
+        res.json({ 
+            day: targetDayName, 
+            date: targetDate, 
+            classes,
+            calendar_event: calendarEvent
+        });
     } catch (err) {
         console.error('Timetable error:', err);
         res.status(500).json({ error: 'Failed to fetch timetable' });

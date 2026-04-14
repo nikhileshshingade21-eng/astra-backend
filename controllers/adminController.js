@@ -388,6 +388,23 @@ const getAiAnalytics = async (req, res) => {
     }
 };
 
+const resetDevice = async (req, res) => {
+    try {
+        const { rollNumber } = req.body;
+        if (!rollNumber) return res.status(400).json({ error: 'Roll number is required for device reset' });
+
+        const result = await queryAll('UPDATE users SET device_id = NULL, is_registered = FALSE WHERE roll_number = $1', [rollNumber.toUpperCase()]);
+        
+        // Log the reset for audit
+        console.log(`[🛡️ ADMIN] Device binding RESET for student ${rollNumber} by ${req.user.name}`);
+        
+        res.json({ success: true, message: `Device binding for ${rollNumber} has been cleared. Student must re-register on their new device.` });
+    } catch (err) {
+        console.error('Reset device error:', err.message);
+        res.status(500).json({ error: 'Failed to reset device binding' });
+    }
+};
+
 module.exports = {
     addZone,
     listZones,
@@ -401,5 +418,6 @@ module.exports = {
     unbanUser,
     getAiAnalytics,
     toggleZone,
-    deleteZone
+    deleteZone,
+    resetDevice
 };

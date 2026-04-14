@@ -81,14 +81,77 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/marks', marksRoutes);
 app.use('/api/leaves', leavesRoutes);
+app.use('/api/calendar', require('./routes/calendar'));
 app.use('/api/marketplace', require('./routes/marketplace'));
 app.use('/api/placements', require('./routes/placements'));
 app.use('/api/ai/approvals', require('./routes/aiApprovals'));
 app.use('/api/tenant', require('./routes/tenant'));
 app.get('/api/version', checkVersion); 
+
+// FCM Token Sync — Mobile clients push their Firebase token after login
+app.post('/api/user/fcm-token', protect, async (req, res) => {
+    try {
+        const { fcm_token } = req.body;
+        if (!fcm_token) return res.status(400).json({ error: 'fcm_token required' });
+        await queryAll('UPDATE users SET fcm_token = $1 WHERE id = $2', [fcm_token, req.user.id]);
+        res.json({ success: true });
+    } catch (e) {
+        console.error('[FCM] Token save error:', e.message);
+        res.status(500).json({ error: 'Failed to save token' });
+    }
+});
 app.get('/api/download/latest', (req, res) => {
     // Current release artifact
     res.redirect('https://github.com/nikhil/astra/releases/download/v1.2.1/app-release.apk');
+});
+
+// REAL WEATHER API — Proxied through backend for caching + reliability
+let weatherCache = { data: null, timestamp: 0 };
+const WEATHER_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+app.get('/api/weather', async (req, res) => {
+    try {
+        const lat = parseFloat(req.query.lat) || 17.385;
+        const lng = parseFloat(req.query.lng) || 78.4867;
+        const now = Date.now();
+        const cacheKey = `${Math.round(lat * 10)}:${Math.round(lng * 10)}`;
+        
+        if (weatherCache.data && weatherCache.key === cacheKey && (now - weatherCache.timestamp) < WEATHER_CACHE_TTL) {
+            return res.json(weatherCache.data);
+        }
+
+        const axios = require('axios');
+        const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=Asia%2FKolkata`;
+        const response = await axios.get(apiUrl, { timeout: 8000 });
+        const current = response.data?.current;
+
+        if (!current) {
+            return res.status(502).json({ error: 'Weather API returned empty data' });
+        }
+
+        const WMO_CODES = {
+            0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
+            45: 'Fog', 48: 'Rime Fog', 51: 'Light Drizzle', 53: 'Drizzle', 55: 'Dense Drizzle',
+            61: 'Light Rain', 63: 'Rain', 65: 'Heavy Rain', 71: 'Light Snow', 73: 'Snow',
+            80: 'Rain Showers', 81: 'Moderate Showers', 82: 'Heavy Showers',
+            95: 'Thunderstorm', 96: 'Thunderstorm + Hail', 99: 'Severe Thunderstorm'
+        };
+
+        const result = {
+            temp: Math.round(current.temperature_2m),
+            condition: WMO_CODES[current.weather_code] || 'Unknown',
+            weather_code: current.weather_code,
+            humidity: current.relative_humidity_2m,
+            wind_speed: Math.round(current.wind_speed_10m),
+            fetched_at: new Date().toISOString()
+        };
+
+        weatherCache = { data: result, timestamp: now, key: cacheKey };
+        res.json(result);
+    } catch (err) {
+        console.error('[WEATHER] API Error:', err.message);
+        res.status(502).json({ error: 'Weather service temporarily unavailable' });
+    }
 });
 
 app.get('/api/health', (req, res) => {
@@ -139,22 +202,60 @@ async function start() {
     }
     server.listen(PORT, async () => {
         console.log(`🚀 ASTRA Backend running on http://0.0.0.0:${PORT}`);
+        
+        // Initialize each service independently so one failure doesn't cascade
         try {
             const db = await getDb(); 
+            console.log('[DB] Database pool acquired.');
+        } catch (err) {
+            console.error('[CRITICAL] Database init failed:', err.message);
+        }
+
+        try {
             await validateSchema(); // 🛡️ Ensure structural integrity
+        } catch (err) {
+            console.error('[WARN] Schema validation failed:', err.message);
+        }
+
+        try {
             await scheduleV3Jobs();
+        } catch (err) {
+            console.error('[WARN] V3 job scheduling failed:', err.message);
+        }
+
+        try {
             // Start class notification scheduler if credentials found
             const { startScheduler } = require('./scheduler/classNotifier');
             startScheduler();
-            
-            console.log('[READY] ASTRA Services Synced.');
         } catch (err) {
-            console.error('[CRITICAL] Startup Failed:', err.message);
+            console.error('[WARN] Class notification scheduler failed:', err.message);
         }
+
+        try {
+            // Start SMART notification engine (weather, reminders, nudges, streaks)
+            const { startSmartScheduler } = require('./scheduler/smartScheduler');
+            startSmartScheduler();
+        } catch (err) {
+            console.error('[WARN] Smart notification engine failed:', err.message);
+        }
+            
+        console.log('[READY] ASTRA Services Synced.');
     });
 }
+
+// Process-level crash guards — prevent silent exits
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[PROCESS] Unhandled Rejection:', reason?.message || reason);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('[PROCESS] Uncaught Exception:', err.message);
+    console.error(err.stack);
+    // Don't exit — keep the server alive for non-fatal exceptions
+});
 
 start().catch(err => {
     console.error('Fatal Start Error:', err);
     process.exit(1);
 });
+

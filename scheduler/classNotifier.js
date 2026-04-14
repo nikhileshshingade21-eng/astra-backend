@@ -8,6 +8,7 @@ const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
 const { queryAll } = require('../database_module');
+const socketService = require('../services/socketService');
 
 // Initialize Firebase Admin SDK (supports both file and env variable)
 let serviceAccount;
@@ -15,18 +16,43 @@ const credPath = path.join(__dirname, '..', 'firebase-credentials.json');
 
 if (fs.existsSync(credPath)) {
   serviceAccount = require(credPath);
-} else if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-  serviceAccount = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+} else if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON.trim()) {
+  try {
+    serviceAccount = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+  } catch (err) {
+    console.error('❌ Malformed GOOGLE_APPLICATION_CREDENTIALS_JSON. Check Railway settings.');
+    module.exports = { startScheduler: () => {} };
+    return;
+  }
 } else {
-  console.error('❌ No Firebase credentials found. Scheduler will not start.');
+  console.log('ℹ️ No Firebase credentials found. Scheduler in Idle mode.');
   module.exports = { startScheduler: () => {} };
   return;
 }
 
+// Global Identity Sync: Ensure the PEM private key is correctly parsed regardless of source
+if (serviceAccount && serviceAccount.private_key) {
+  serviceAccount.private_key = serviceAccount.private_key
+    .replace(/\\n/g, '\n')
+    .replace(/\r/g, '')
+    .trim();
+}
+
+let firebaseReady = false;
 if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+    firebaseReady = true;
+    console.log('✅ Firebase Admin SDK initialized successfully.');
+  } catch (fbErr) {
+    console.error('⚠️ Firebase Admin SDK initialization failed:', fbErr.message);
+    console.error('   Push notifications will be disabled. The scheduler will run in logging-only mode.');
+    console.error('   To fix: Replace firebase-credentials.json with a fresh key from Firebase Console.');
+  }
+} else {
+  firebaseReady = true;
 }
 
 // In-memory cache for sent notifications
@@ -35,7 +61,13 @@ const sentNotifications = new Map();
 /**
  * Check for upcoming and ongoing classes
  */
+let isRunning = false;
 async function checkClasses() {
+  if (isRunning) {
+    console.log('[SCHEDULER] Previous check still running, skipping');
+    return;
+  }
+  isRunning = true;
   try {
     console.log('🔍 Checking for upcoming classes...');
 
@@ -87,6 +119,16 @@ async function checkClasses() {
           });
 
           sentNotifications.set(notificationKey, Date.now());
+          
+          // BRIDGE: Live In-App Pulse
+          socketService.emitToUser(user_id, 'LIVE_NOTIFICATION', {
+            title: `📚 Upcoming: ${subject}`,
+            body: `Starts in ${minutesUntilClass}m at ${start_time}`,
+            type: 'class_reminder',
+            class_name: subject,
+            room: room || 'TBA'
+          });
+
           notificationCount++;
           console.log(`✅ Sent reminder to ${email} for ${subject}`);
         }
@@ -109,6 +151,16 @@ async function checkClasses() {
           });
 
           sentNotifications.set(notificationKey, Date.now());
+
+          // BRIDGE: Live In-App Pulse
+          socketService.emitToUser(user_id, 'LIVE_NOTIFICATION', {
+            title: `🔔 Session Active: ${subject}`,
+            body: `Your session has started at ${start_time}. Mark attendance!`,
+            type: 'class_start',
+            class_name: subject,
+            room: room || 'TBA'
+          });
+
           notificationCount++;
           console.log(`✅ Sent start notification to ${email} for ${subject}`);
         }
@@ -121,6 +173,8 @@ async function checkClasses() {
     console.log(`✅ Check complete. Sent: ${notificationCount} notifications`);
   } catch (error) {
     console.error('❌ Error checking classes:', error);
+  } finally {
+    isRunning = false;
   }
 }
 
@@ -128,6 +182,10 @@ async function checkClasses() {
  * Send Firebase Cloud Messaging notification
  */
 async function sendNotification(fcmToken, { title, body, data }) {
+  if (!firebaseReady) {
+    console.log('[SCHEDULER] Firebase not ready, skipping push notification:', title);
+    return null;
+  }
   try {
     const message = {
       notification: {

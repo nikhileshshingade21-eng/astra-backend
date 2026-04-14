@@ -2,7 +2,6 @@ const { getDb, queryAll, saveDb } = require('../database_module.js');
 const { reportThreat } = require('../services/threatService');
 const { getOrSetCache } = require('../services/cacheService');
 const socketService = require('../services/socketService');
-const { verifyFace } = require('../services/aiFaceService');
 const { queryAll: directQuery } = require('../database_module');
 
 const { getLocalDate } = require('../utils/dateUtils');
@@ -71,7 +70,7 @@ async function detectGpsAnomaly(userId, gps_lat, gps_lng) {
 
 const mark = async (req, res) => {
     try {
-        const { class_id, gps_lat, gps_lng, method, face_image } = req.body;
+        const { class_id, gps_lat, gps_lng, method } = req.body;
         const db = await getDb();
 
         // SEC-006 FIX: Request Signing Verification
@@ -88,11 +87,15 @@ const mark = async (req, res) => {
             return res.status(403).json({ error: 'PROTOCOL_STALE', message: 'Request expired' });
         }
 
-        // 2. Signature Verification (VULN-023 FIX: Include device_id binding)
+        // 2. Signature Verification — Uses JWT token as HMAC key (no shared secret)
         const crypto = require('crypto');
+        const jwtToken = req.headers.authorization?.split(' ')[1];
+        if (!jwtToken) {
+            return res.status(403).json({ error: 'PROTOCOL_VIOLATION', message: 'Missing auth token for signing' });
+        }
         const signatureBase = `${timestamp}:${nonce}:${class_id || 'general'}:${req.user.id}:${req.user.device_id}`;
-        const expectedSignature = crypto.createHash('sha256')
-            .update(signatureBase + (process.env.APP_PROTO_SECRET || 'ASTRA_PROTO_V4_SECRET'))
+        const expectedSignature = crypto.createHmac('sha256', jwtToken)
+            .update(signatureBase)
             .digest('hex');
 
         if (signature !== expectedSignature) {
@@ -107,30 +110,8 @@ const mark = async (req, res) => {
             }
         }
 
-        // --- FACE VERIFICATION UPGRADE ---
-        if (!face_image) {
-            return res.status(400).json({ error: 'FACE_REQUIRED', message: 'Real-time face capture is mandatory for attendance security.' });
-        }
-
-        // Fetch user's stored face embedding
-        const userRes = await queryAll('SELECT face_embedding FROM users WHERE id = $1', [req.user.id]);
-        if (userRes.length === 0 || !userRes[0].face_embedding) {
-            return res.status(403).json({ error: 'FACE_NOT_ENROLLED', message: 'You have not enrolled your face biometrics. Please re-register or contact admin.' });
-        }
-
-        const storedEmbedding = JSON.parse(userRes[0].face_embedding);
-        console.log(`[👤 FACE_VERIFY] Verifying face for User ${req.user.id}...`);
-        
-        const verifyRes = await verifyFace(storedEmbedding, face_image);
-        if (!verifyRes.verified) {
-            console.warn(`[🛡️ AUTH_FAILURE] Face mismatch for User ${req.user.id}. Distance: ${verifyRes.distance}`);
-            return res.status(403).json({ 
-                error: 'FACE_MISMATCH', 
-                message: 'Face verification failed. Please ensure your face is clearly visible and try again.',
-                details: { distance: verifyRes.distance }
-            });
-        }
-        console.log(`[✅ FACE_VERIFIED] Match confirmed. Confidence: ${verifyRes.confidence}`);
+        // Note: Face verification was removed in favor of strict device-bound biometrics.
+        // Handled at the session level via authMiddleware and device_id matching.
 
         // 3. Nonce Check (Neutralize VULN-017: Replay Attack)
         const { getRedisClient } = require('../services/cacheService');
@@ -208,6 +189,20 @@ const mark = async (req, res) => {
 
         const todayDate = getLocalDate();
         
+        // --- ACADEMIC CALENDAR ENFORCEMENT ---
+        const calendarEvents = await queryAll(
+            'SELECT event_name, type, is_system_holiday FROM academic_calendar WHERE $1 BETWEEN start_date AND end_date AND is_system_holiday = 1 LIMIT 1',
+            [todayDate]
+        );
+        if (calendarEvents.length > 0) {
+            const event = calendarEvents[0];
+            return res.status(403).json({ 
+                error: 'CALENDAR_BLOCK', 
+                message: `Attendance protocol is DISABLED today due to: ${event.event_name} (${event.type.toUpperCase()}).`,
+                event: event.event_name 
+            });
+        }
+        
         // 🛡️ Pre-emptive existence check (UX)
         if (class_id) {
             const existing = await queryAll(
@@ -269,7 +264,7 @@ const mark = async (req, res) => {
                 `INSERT INTO attendance (user_id, class_id, date, status, gps_lat, gps_lng, distance_m, method)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                  ON CONFLICT (user_id, class_id, date) DO NOTHING`,
-                [req.user.id, class_id || null, todayDate, status, gps_lat, gps_lng, Math.round(nearestDistance), method || 'gps+biometric']
+                [req.user.id, class_id || null, todayDate, status, gps_lat, gps_lng, Math.round(nearestDistance), method || 'biometric']
             );
         } catch (err) {
             // CHAOS-FIX: Handle 'Unique Violation' race condition during Redis outage
@@ -426,6 +421,25 @@ const manualMark = async (req, res) => {
             );
         }
 
+        // --- BRIDGE: LIVE NOTIFICATION TO STUDENT ---
+        try {
+            const classInfo = await queryAll('SELECT name, code FROM classes WHERE id = $1', [class_id]);
+            if (classInfo.length > 0) {
+                const className = classInfo[0].name;
+                const statusLabel = status.toUpperCase();
+                
+                socketService.emitToUser(user_id, 'LIVE_NOTIFICATION', {
+                    title: `✅ Attendance Verified`,
+                    body: `Faculty marked you ${statusLabel} for ${className}.`,
+                    type: 'attendance_update',
+                    status: status,
+                    class_name: className
+                });
+            }
+        } catch (socErr) {
+            console.error('[BRIDGE_ERR] Live pulse failed:', socErr.message);
+        }
+
         res.json({ success: true, message: `Attendance for student updated to ${status}` });
     } catch (err) {
         console.error('Manual mark error:', err);
@@ -433,9 +447,29 @@ const manualMark = async (req, res) => {
     }
 };
 
+const getAttendanceStats = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const totalResult = await queryAll('SELECT COUNT(*) as count FROM attendance WHERE user_id = $1', [userId]);
+        const total = totalResult.length ? parseInt(totalResult[0].count) : 0;
+
+        const presentResult = await queryAll("SELECT COUNT(*) as count FROM attendance WHERE user_id = $1 AND status IN ('present', 'late')", [userId]);
+        const attended = presentResult.length ? parseInt(presentResult[0].count) : 0;
+
+        const percentage = total > 0 ? Math.round((attended / total) * 100) : 100;
+
+        res.json({ attended, total, percentage });
+    } catch (err) {
+        console.error('Attendance stats error:', err);
+        res.status(500).json({ error: 'Failed to fetch attendance stats' });
+    }
+};
+
 module.exports = {
     mark,
     getHistory,
     getLiveAttendance,
-    manualMark
+    manualMark,
+    getAttendanceStats
 };

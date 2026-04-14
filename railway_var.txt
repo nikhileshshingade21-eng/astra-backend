@@ -1,0 +1,15 @@
+﻿railway.exe : error: unrecognized subcommand 'get'
+At line:1 char:1
++ & "D:\.npm-global\node_modules\@railway\cli\bin\railway.exe" variable ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (error: unrecognized subcommand  
+   'get':String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+  tip: a similar subcommand exists: 'set'
+
+Usage: railway.exe variable [OPTIONS] [COMMAND]
+
+For more information, try '--help'.
+
