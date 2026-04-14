@@ -43,7 +43,7 @@ async function isHolidayToday() {
     try {
         const today = getLocalDate();
         const events = await queryAll(
-            'SELECT id FROM academic_calendar WHERE $1 BETWEEN start_date AND end_date AND is_system_holiday = 1 LIMIT 1',
+            'SELECT id FROM academic_calendar WHERE CAST($1 AS DATE) BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE) AND is_system_holiday = 1 LIMIT 1',
             [today]
         );
         return events.length > 0;
@@ -283,13 +283,110 @@ async function sendSmartNotification(userId, templateKey, vars = {}, category = 
 }
 
 
-// ─── WEATHER ALERTS ENGINE ──────────────────────────────────────────────────
+// ─── WEATHER ALERTS ENGINE v2.0 — Context-Aware + Anti-Spam ────────────────
+
+// Persistent tracker: remembers last weather state to only alert on CHANGES
+let lastWeatherState = { condition: null, tempBucket: null, timePhase: null };
+
+function getTimePhase() {
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istTime = new Date(now.getTime() + istOffset);
+    const hour = istTime.getUTCHours();
+    if (hour >= 5 && hour < 12) return 'morning';
+    if (hour >= 12 && hour < 17) return 'afternoon';
+    if (hour >= 17 && hour < 20) return 'evening';
+    return 'night';
+}
+
+function getTempBucket(temp) {
+    if (temp >= 40) return 'extreme_heat';
+    if (temp >= 35) return 'hot';
+    if (temp >= 28) return 'warm';
+    if (temp >= 18) return 'pleasant';
+    if (temp >= 10) return 'cool';
+    return 'cold';
+}
+
+function getWeatherCondition(code) {
+    if (code >= 95) return 'thunderstorm';
+    if (code >= 80 && code <= 82) return 'heavy_rain';
+    if (code >= 61 && code <= 65) return 'rain';
+    if (code >= 51 && code <= 55) return 'drizzle';
+    if (code >= 45 && code <= 48) return 'fog';
+    if (code === 3) return 'overcast';
+    if (code === 2) return 'partly_cloudy';
+    if (code <= 1) return 'clear';
+    return 'unknown';
+}
+
+// Context-aware notification templates
+const SMART_WEATHER_COPY = {
+    // RAIN (actual rain happening)
+    'rain_morning': [
+        { title: "🌧️ Rainy morning!", body: "Grab your umbrella before heading to class. Roads might be slippery ☔" },
+        { title: "☔ It's raining rn", body: "Carry an umbrella and maybe skip the white shirt today 😅" },
+    ],
+    'rain_afternoon': [
+        { title: "🌧️ Afternoon showers", body: "Rain's here! Hope you packed that umbrella 🌂" },
+        { title: "☔ Wet campus alert", body: "It's pouring outside. Stay dry between classes!" },
+    ],
+    'rain_evening': [
+        { title: "🌧️ Rainy evening vibes", body: "Perfect chai weather ☕ Just don't forget your umbrella if you're heading out" },
+        { title: "🌧️ Evening rain", body: "Rain's making the evening cozy. Careful on wet roads if heading home 🏠" },
+    ],
+
+    // THUNDERSTORM
+    'thunderstorm_any': [
+        { title: "⛈️ STORM WARNING", body: "Thunderstorm on campus! Stay indoors and avoid open areas ⚡" },
+        { title: "🌪️ Severe weather alert", body: "Lightning risk is real. Stay inside until it passes 🛑" },
+    ],
+
+    // HOT + SUNNY (not during evening/night)
+    'hot_sunny_afternoon': [
+        { title: "🔥 Peak heat hours", body: "{temp}°C right now. Hydrate, use shade, and maybe skip that outdoor walk 💧" },
+        { title: "☀️ It's actually hot rn", body: "{temp}°C. Sunscreen + water bottle = survival kit today" },
+    ],
+    'hot_sunny_morning': [
+        { title: "☀️ Warm morning already", body: "{temp}°C and climbing. Carry water to class today 💧" },
+        { title: "🌡️ Starting hot today", body: "{temp}°C this morning. It's gonna be a warm one — dress light!" },
+    ],
+    
+    // HOT + CLOUDY (tempered messaging)
+    'hot_cloudy': [
+        { title: "🌤️ Warm but cloudy", body: "{temp}°C but clouds are keeping the sun in check. Still stay hydrated! 💧" },
+        { title: "☁️ Muggy weather", body: "{temp}°C with clouds. Feels humid — water bottle is your bestie today" },
+    ],
+
+    // HOT + EVENING (cooling down)
+    'hot_evening': [
+        { title: "🌇 Cooling down now", body: "Still {temp}°C but the sun's backing off. Relief incoming 🌅" },
+        { title: "🌆 Evening breeze approaching", body: "{temp}°C but it's cooling down. Perfect time for a campus walk" },
+    ],
+
+    // PLEASANT
+    'pleasant_any': [
+        { title: "🌤️ Perfect campus weather!", body: "{temp}°C with nice vibes. Touch grass era activated 🌿" },
+        { title: "✨ Beautiful day outside", body: "{temp}°C — ideal weather for studying outdoors or grabbing chai ☕" },
+    ],
+
+    // COLD
+    'cold_morning': [
+        { title: "🥶 Chilly morning!", body: "{temp}°C. Layer up before heading out 🧣" },
+        { title: "❄️ Bundle up!", body: "{temp}°C this morning. Hot coffee + warm jacket = essentials" },
+    ],
+    'cold_evening': [
+        { title: "🌙 Cold evening", body: "{temp}°C and dropping. Jacket time if you're heading out 🧥" },
+    ],
+};
 
 async function checkWeatherAlerts() {
     try {
         const axios = require('axios');
+        
+        // Fetch CURRENT weather + next hour forecast
         const response = await axios.get(
-            'https://api.open-meteo.com/v1/forecast?latitude=17.385&longitude=78.4867&current=temperature_2m,weather_code,relative_humidity_2m&timezone=Asia%2FKolkata',
+            'https://api.open-meteo.com/v1/forecast?latitude=17.385&longitude=78.4867&current=temperature_2m,weather_code,relative_humidity_2m&hourly=weather_code&forecast_hours=3&timezone=Asia%2FKolkata',
             { timeout: 8000 }
         );
         
@@ -298,58 +395,114 @@ async function checkWeatherAlerts() {
         
         const temp = Math.round(current.temperature_2m);
         const code = current.weather_code;
-        const humidity = current.relative_humidity_2m;
+        const timePhase = getTimePhase();
+        const condition = getWeatherCondition(code);
+        const tempBucket = getTempBucket(temp);
         
-        let alertTemplate = null;
+        // ── SMART CHANGE DETECTION: Only alert if something actually changed ──
+        const newState = { condition, tempBucket, timePhase };
+        const stateChanged = (
+            lastWeatherState.condition !== newState.condition ||
+            lastWeatherState.tempBucket !== newState.tempBucket ||
+            lastWeatherState.timePhase !== newState.timePhase
+        );
+        
+        if (!stateChanged) {
+            console.log(`[WEATHER] No change detected (${condition}/${tempBucket}/${timePhase}). Skipping.`);
+            return;
+        }
+        
+        // Update state tracker
+        lastWeatherState = { ...newState };
+        
+        // ── DETERMINE THE RIGHT TEMPLATE ──
+        let templateKey = null;
         let alertType = 'info';
         
-        // Thunderstorm (codes 95-99)
-        if (code >= 95) {
-            alertTemplate = 'weather_storm';
+        // Priority 1: Thunderstorm (always alert)
+        if (condition === 'thunderstorm') {
+            templateKey = 'thunderstorm_any';
             alertType = 'danger';
         }
-        // Heavy rain (codes 63-82)
-        else if (code >= 63 || (code >= 80 && code <= 82)) {
-            alertTemplate = 'weather_rain';
+        // Priority 2: Rain/Drizzle (weather trumps temperature)
+        else if (['heavy_rain', 'rain', 'drizzle'].includes(condition)) {
+            templateKey = `rain_${timePhase === 'night' ? 'evening' : timePhase}`;
             alertType = 'warning';
         }
-        // Light rain/drizzle (codes 51-61)
-        else if (code >= 51 && code <= 61) {
-            alertTemplate = 'weather_rain';
-            alertType = 'warning';
+        // Priority 3: Temperature-based (only if no rain)
+        else if (tempBucket === 'extreme_heat' || tempBucket === 'hot') {
+            if (timePhase === 'evening' || timePhase === 'night') {
+                templateKey = 'hot_evening';
+            } else if (condition === 'overcast' || condition === 'partly_cloudy') {
+                templateKey = 'hot_cloudy';
+            } else {
+                templateKey = `hot_sunny_${timePhase === 'afternoon' ? 'afternoon' : 'morning'}`;
+            }
+            alertType = temp >= 40 ? 'warning' : 'info';
         }
-        // Extreme heat (40°C+)
-        else if (temp >= 40) {
-            alertTemplate = 'weather_extreme_heat';
-            alertType = 'warning';
+        else if (tempBucket === 'cold') {
+            templateKey = timePhase === 'morning' ? 'cold_morning' : 'cold_evening';
         }
-        // Hot (35°C+)
-        else if (temp >= 35) {
-            alertTemplate = 'weather_extreme_heat';
-            alertType = 'info';
-        }
-        // Cold (<10°C)
-        else if (temp < 10) {
-            alertTemplate = 'weather_cold';
-            alertType = 'info';
+        // Pleasant weather: only send once per day (don't spam good news)
+        else if (tempBucket === 'pleasant' && timePhase === 'morning') {
+            templateKey = 'pleasant_any';
         }
         
-        if (!alertTemplate) return; // No alert needed
+        if (!templateKey) return;
         
-        console.log(`[WEATHER ALERT] Triggered: ${alertTemplate} (code=${code}, temp=${temp}°C)`);
+        // ── PICK COPY FROM SMART TEMPLATES ──
+        const templates = SMART_WEATHER_COPY[templateKey];
+        if (!templates || templates.length === 0) return;
         
-        // Send to ALL students
+        const template = templates[Math.floor(Math.random() * templates.length)];
+        let title = template.title.replace(/\{temp\}/g, String(temp));
+        let body = template.body.replace(/\{temp\}/g, String(temp));
+        
+        console.log(`[WEATHER v2.0] State change → ${condition}/${tempBucket}/${timePhase} → ${templateKey}`);
+        
+        // Send to all students (using existing anti-spam)
         const students = await queryAll("SELECT id FROM users WHERE role = 'student'");
         let sent = 0;
         
         for (const student of students) {
-            const didSend = await sendSmartNotification(
-                student.id, alertTemplate, { temp, humidity }, 'weather', alertType
-            );
-            if (didSend) sent++;
+            if (!canSendNotification(student.id, 'weather')) continue;
+            
+            try {
+                await queryAll(
+                    `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
+                    [student.id, title, body, alertType]
+                );
+                
+                socketService.emitToUser(student.id, 'LIVE_NOTIFICATION', {
+                    title, body, type: 'weather', template: templateKey,
+                    timestamp: new Date().toISOString()
+                });
+                
+                // FCM push
+                if (firebaseReady) {
+                    try {
+                        const userQuery = await queryAll('SELECT fcm_token FROM users WHERE id = $1', [student.id]);
+                        if (userQuery.length > 0 && userQuery[0].fcm_token) {
+                            await admin.messaging().send({
+                                notification: { title, body },
+                                data: { type: 'weather', template: templateKey },
+                                token: userQuery[0].fcm_token,
+                                android: { priority: 'high', notification: { sound: 'default', channelId: 'astra-class-reminders' } }
+                            });
+                        }
+                    } catch (fcmErr) {
+                        console.error(`[FCM] Weather push failed for ${student.id}:`, fcmErr.message);
+                    }
+                }
+                
+                recordNotificationSent(student.id, 'weather');
+                sent++;
+            } catch (err) {
+                console.error(`[WEATHER] Notify failed for ${student.id}:`, err.message);
+            }
         }
         
-        console.log(`[WEATHER ALERT] Sent to ${sent}/${students.length} students`);
+        console.log(`[WEATHER v2.0] Sent to ${sent}/${students.length} students`);
     } catch (err) {
         console.error('[WEATHER ALERT] Check failed:', err.message);
     }

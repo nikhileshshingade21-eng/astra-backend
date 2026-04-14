@@ -21,9 +21,10 @@ const getTodayClasses = async (req, res) => {
         targetDateObj.setDate(MondayDate.getDate() + targetOffset);
         const targetDate = targetDateObj.toISOString().split('T')[0];
 
-        // CHECK ACADEMIC CALENDAR
+        // CHECK ACADEMIC CALENDAR (dates are TEXT in DB, cast for proper comparison)
+        // Prioritize holidays over instruction periods by ordering is_system_holiday DESC
         const calendarEvents = await queryAll(
-            'SELECT event_name, type, is_system_holiday FROM academic_calendar WHERE $1 BETWEEN start_date AND end_date LIMIT 1',
+            'SELECT event_name, type, is_system_holiday FROM academic_calendar WHERE CAST($1 AS DATE) BETWEEN CAST(start_date AS DATE) AND CAST(end_date AS DATE) ORDER BY is_system_holiday DESC LIMIT 1',
             [targetDate]
         );
         const calendarEvent = calendarEvents.length > 0 ? calendarEvents[0] : null;
