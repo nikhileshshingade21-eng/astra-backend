@@ -101,7 +101,7 @@ const getTodayClasses = async (req, res) => {
                 // Check if attendance already marked (User specific, cannot be globally cached)
                 const att = await queryAll(
                     'SELECT status FROM attendance WHERE user_id = $1 AND class_id = $2 AND date = $3',
-                    [req.user.id, row.id, todayDate]
+                    [req.user.id, row.id, targetDate]
                 );
                 const attended = att.length > 0 ? att[0].status : null;
 
