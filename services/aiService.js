@@ -34,12 +34,9 @@ const getAttendanceDrift = async (studentId, historicalMarks, recentAttendance) 
 
 
 
-const { OpenAI } = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const chat = async (studentId, message) => {
     let metadata = { sentiment: 'Neutral', topic: 'General' };
 
@@ -94,42 +91,32 @@ const chat = async (studentId, message) => {
 
         const contextString = contextArray.join('\n');
 
-        console.log(`[ASTRA AI] Dispatching to GPT-4o-mini with context:`, contextString);
+        console.log(`[ASTRA AI] Dispatching to Gemini 1.5 Flash with context:`, contextString);
 
-        // 4. Call OpenAI API
-        const aiResponse = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: "You are ASTRA AI, a smart and helpful assistant inside a student app.\nGive clear, accurate, and simple answers.\nIf student data is provided in the context, use it to give precise personalized responses.\nIf they ask about their attendance, schedule, or holidays, ONLY refer to the student context provided.\nOtherwise behave like a normal ChatGPT assistant answering general knowledge or academic questions.\nDo not make up data. Keep responses short and friendly."
-                },
-                {
-                    role: "system",
-                    content: `[STUDENT CONTEXT (Live DB Data)]\n${contextString}`
-                },
-                {
-                    role: "user",
-                    content: message
-                }
-            ],
-            temperature: 0.7,
-            max_tokens: 400
+        // 4. Call Google Gemini API
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-1.5-flash",
+            systemInstruction: "You are ASTRA AI, a smart and helpful assistant inside a student app.\nGive clear, accurate, and simple answers.\nIf student data is provided in the context, use it to give precise personalized responses.\nIf they ask about their attendance, schedule, or holidays, ONLY refer to the student context provided.\nOtherwise behave like a typical AI assistant answering general knowledge or academic questions.\nDo not make up data. Keep responses short and friendly."
         });
+
+        const prompt = `[STUDENT CONTEXT (Live DB Data)]\n${contextString}\n\n[USER MESSAGE]\n${message}`;
+
+        const aiResponse = await model.generateContent(prompt);
+        const responseText = aiResponse.response.text();
 
         return {
             user_id: studentId,
-            response: aiResponse.choices[0].message.content,
+            response: responseText,
             confidence: 0.99,
-            source: 'OpenAI_ASTRA_Engine',
+            source: 'Gemini_ASTRA_Engine',
             metadata
         };
 
     } catch (err) {
-        console.error('OpenAI Chat Error:', err.response?.data || err.message);
+        console.error('Gemini Chat Error:', err.message);
         return {
             user_id: studentId,
-            response: `I'm having trouble connecting to my AI core. Make sure my OPENAI_API_KEY is active!`,
+            response: `I'm having trouble connecting to my Google AI core (Gemini).\nMake sure my GEMINI_API_KEY is active!`,
             confidence: 0,
             source: 'ASTRA_Fallback',
             metadata
