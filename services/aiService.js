@@ -116,7 +116,7 @@ const chat = async (studentId, message) => {
         console.log(`[ASTRA AI] Dispatching to Gemini 1.5 Flash with context:`, contextString);
 
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-2.0-flash",
+            model: "gemini-2.5-flash-lite",
             systemInstruction: "You are ASTRA AI, a smart and helpful assistant inside a student app.\nGive clear, accurate, and simple answers.\nIf student data is provided in the context, use it to give precise personalized responses.\nIf they ask about their attendance, schedule, or holidays, ONLY refer to the student context provided.\nOtherwise behave like a typical AI assistant answering general knowledge or academic questions.\nDo not make up data. Keep responses short and friendly."
         });
 
