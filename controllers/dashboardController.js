@@ -1,6 +1,7 @@
 const { getDb, queryAll } = require('../database_module.js');
 const { getLocalDate } = require('../utils/dateUtils');
 const aiService = require('../services/aiService');
+const aiEngine = require('../services/aiNotificationEngine');
 
 function parseTimeToMinutes(timeStr) {
     if (!timeStr) return 0;
@@ -12,6 +13,9 @@ const getDashboardStats = async (req, res) => {
     try {
         const db = await getDb();
         const userId = req.user.id;
+
+        // 🧠 AI INTEGRATION: Silently track what time the user natively opens the app
+        aiEngine.logUserActivity(userId, 'APP_OPEN', { agent: req.headers['user-agent'] }).catch(() => {});
 
         // Total attendance records
         const totalResult = await queryAll('SELECT COUNT(*) as count FROM attendance WHERE user_id = $1', [userId]);

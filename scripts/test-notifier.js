@@ -79,8 +79,12 @@ const pool = new Pool({
         for (const notif of notifications) {
             try {
                 const msgId = await admin.messaging().send({
-                    notification: { title: notif.title, body: notif.body },
-                    data: notif.data,
+                    // Intentionally omitting 'notification' block to trigger M1 Data-Only override!
+                    data: { 
+                        ...notif.data, 
+                        title: notif.title, 
+                        body: notif.body 
+                    },
                     token: user.fcm_token,
                     android: {
                         priority: 'high',

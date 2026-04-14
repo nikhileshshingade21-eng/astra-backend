@@ -76,4 +76,13 @@ router.post('/unban', authMiddleware, adminOnly, unbanUser);
 // POST /api/admin/reset-device — Clear device binding for a student
 router.post('/reset-device', authMiddleware, adminOnly, resetDevice);
 
+// 🚀 M3 WEB DASHBOARD NOTIFICATION ENDPOINTS
+const { sendNotification, getNotificationStats } = require('../controllers/adminController');
+
+// POST /api/admin/send-notification — Trigger a backend broadcast
+router.post('/send-notification', authMiddleware, adminOnly, sendNotification);
+
+// GET /api/admin/notification-stats — Read AI Tracker metrics
+router.get('/notification-stats', authMiddleware, adminOnly, getNotificationStats);
+
 module.exports = router;

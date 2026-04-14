@@ -405,6 +405,85 @@ const resetDevice = async (req, res) => {
     }
 };
 
+// ====================================================================
+//  🚀 M3 WEB DASHBOARD ENDPOINTS
+// ====================================================================
+
+const sendNotification = async (req, res) => {
+    try {
+        const { targetType, targetId, title, message, type } = req.body;
+        if (!targetType || !title || !message) {
+            return res.status(400).json({ error: 'targetType, title, and message are critically required' });
+        }
+
+        const admin = require('firebase-admin');
+        const AIEngine = require('../services/aiNotificationEngine');
+        let tokens = [];
+        let userIds = [];
+
+        if (targetType === 'all') {
+            const users = await queryAll('SELECT id, fcm_token FROM users WHERE fcm_token IS NOT NULL');
+            tokens = users.map(u => u.fcm_token);
+            userIds = users.map(u => u.id);
+        } else if (targetType === 'individual') {
+            const user = await queryAll('SELECT id, fcm_token FROM users WHERE roll_number = $1', [targetId]);
+            if (user.length > 0 && user[0].fcm_token) {
+                tokens.push(user[0].fcm_token);
+                userIds.push(user[0].id);
+            }
+        }
+
+        if (tokens.length === 0) {
+            return res.status(404).json({ error: 'No valid FCM targets acquired' });
+        }
+
+        // FIREBASE MULTICAST (Data Only for Notifee wakeups)
+        const fcmRes = await admin.messaging().sendEachForMulticast({
+            tokens: tokens,
+            data: { title, body: message, type: type || 'admin_broadcast', template: 'manual' },
+            android: { priority: 'high' }
+        });
+
+        // Loop array to log history
+        for (let i = 0; i < userIds.length; i++) {
+            const state = fcmRes.responses[i].success ? 'delivered' : 'failed';
+            await AIEngine.logNotificationHistory(userIds[i], type || 'admin_broadcast', title, message, state);
+        }
+
+        res.json({ success: true, deliveries: fcmRes.successCount, failures: fcmRes.failureCount });
+    } catch (err) {
+        console.error('Send Notification Error:', err.message);
+        res.status(500).json({ error: 'Critical failure pushing notification' });
+    }
+};
+
+const getNotificationStats = async (req, res) => {
+    try {
+        const totalSent = await queryAll(`SELECT COUNT(*) as count FROM notification_history`);
+        const totalFailed = await queryAll(`SELECT COUNT(*) as count FROM notification_history WHERE status = 'failed'`);
+        
+        const recentHistory = await queryAll(`
+            SELECT h.id, h.title, h.message, h.status, h.sent_at, u.roll_number 
+            FROM notification_history h
+            LEFT JOIN users u ON h.user_id = u.id
+            ORDER BY h.sent_at DESC
+            LIMIT 50
+        `);
+
+        res.json({
+            success: true,
+            metrics: {
+                sent: parseInt(totalSent[0]?.count || 0),
+                failed: parseInt(totalFailed[0]?.count || 0),
+                successRate: totalSent[0]?.count > 0 ? Math.round(((totalSent[0].count - totalFailed[0].count) / totalSent[0].count) * 100) : 100
+            },
+            history: recentHistory || []
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Error pulling telemetry' });
+    }
+};
+
 module.exports = {
     addZone,
     listZones,
@@ -419,5 +498,7 @@ module.exports = {
     getAiAnalytics,
     toggleZone,
     deleteZone,
-    resetDevice
+    resetDevice,
+    sendNotification,
+    getNotificationStats
 };

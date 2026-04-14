@@ -18,6 +18,7 @@ const { getLocalDate } = require('../utils/dateUtils');
 const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
+const AIEngine = require('./aiNotificationEngine');
 
 // Initialize Firebase Admin SDK for background push notifications
 let firebaseReady = false;
@@ -236,6 +237,17 @@ function recordNotificationSent(userId, category) {
 async function sendSmartNotification(userId, templateKey, vars = {}, category = 'engagement', type = 'info') {
     if (!canSendNotification(userId, category)) return false;
     
+    // 🧠 AI INTEGRATION: Check chronological suppression windows
+    // 'class' alerts bypass quiet hours to guarantee students don't miss lectures,
+    // but 'engagement' and 'attendance' nudges respect user preferences.
+    if (category !== 'class') {
+        const isQuiet = await AIEngine.fallsInQuietHours(userId);
+        if (isQuiet) {
+            console.log(`[AI-ENGINE] Suppressed '${category}' alert for user ${userId} (Quiet Hours)`);
+            return false;
+        }
+    }
+
     const copy = pickCopy(templateKey, vars);
     if (!copy) return false;
     
@@ -261,12 +273,15 @@ async function sendSmartNotification(userId, templateKey, vars = {}, category = 
                 const userQuery = await queryAll('SELECT fcm_token FROM users WHERE id = $1', [userId]);
                 if (userQuery.length > 0 && userQuery[0].fcm_token) {
                     const fcmRes = await admin.messaging().send({
-                        notification: { title: copy.title, body: copy.body },
-                        data: { type: category, template: templateKey },
+                        data: { 
+                            title: copy.title, 
+                            body: copy.body,
+                            type: category, 
+                            template: templateKey 
+                        },
                         token: userQuery[0].fcm_token,
                         android: {
                             priority: 'high',
-                            notification: { sound: 'default', channelId: 'astra-class-reminders' },
                         }
                     });
                     console.log(`[FCM] Firebase Message Auth: OK -> ${fcmRes}`);
@@ -282,9 +297,17 @@ async function sendSmartNotification(userId, templateKey, vars = {}, category = 
         
         recordNotificationSent(userId, category);
         console.log(`[NOTIFY] → ${userId}: [${category}] ${copy.title}`);
+        
+        // 🧠 AI INTEGRATION: Log to Analytical Database Component
+        await AIEngine.logNotificationHistory(userId, category, copy.title, copy.body, 'delivered');
+        
         return true;
     } catch (err) {
         console.error(`[NOTIFY] Failed for user ${userId}:`, err.message);
+        
+        // 🧠 AI INTEGRATION: Log failures for dashboard tracking
+        await AIEngine.logNotificationHistory(userId, category, copy?.title || 'Unknown', copy?.body || 'Unknown', 'failed');
+        
         return false;
     }
 }
@@ -826,15 +849,18 @@ async function sendGoodNightDigest() {
              const title = firstName ? `🌙 Good Night, ${firstName}!` : `🌙 Good Night!`;
              
              try {
-                 await sendSmartNotification(
-                     user.id,
-                     title,
-                     'You crushed it today. ASTRA is going into sleep mode — get some rest and see you tomorrow! ✨',
-                     'broadcast',
-                     'good_night',
-                     {},
-                     { forcePush: true } // Guarantee FCM delivery
-                 );
+                 await admin.messaging().send({
+                     data: {
+                         title: title,
+                         body: 'You crushed it today. ASTRA is going into sleep mode — get some rest and see you tomorrow! ✨',
+                         type: 'broadcast',
+                         template: 'good_night'
+                     },
+                     token: user.fcm_token,
+                     android: {
+                         priority: 'high'
+                     }
+                 });
                  successCount++;
              } catch (err) {
                  // Ignore individual push errors
