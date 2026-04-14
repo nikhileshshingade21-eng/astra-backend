@@ -22,19 +22,26 @@ const path = require('path');
 // Initialize Firebase Admin SDK for background push notifications
 let firebaseReady = false;
 const credPath = path.join(__dirname, '..', 'firebase-credentials.json');
-if (fs.existsSync(credPath)) {
-    try {
-        const serviceAccount = require(credPath);
-        serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
-        if (!admin.apps.length) {
-            admin.initializeApp({
-                credential: admin.credential.cert(serviceAccount)
-            });
-        }
-        firebaseReady = true;
-    } catch (e) {
-        console.error('[NOTIFY_ENGINE] Firebase Init Error:', e.message);
+
+function initFirebaseFromCreds(sa) {
+    if (typeof sa.private_key === 'string') {
+        sa.private_key = sa.private_key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
     }
+    if (!admin.apps.length) {
+        admin.initializeApp({ credential: admin.credential.cert(sa) });
+    }
+    firebaseReady = true;
+    console.log('[FCM] Firebase Admin SDK initialized successfully');
+}
+
+if (fs.existsSync(credPath)) {
+    try { initFirebaseFromCreds(require(credPath)); }
+    catch (e) { console.error('[FCM] File init error:', e.message); }
+} else if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+    try { initFirebaseFromCreds(JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)); }
+    catch (e) { console.error('[FCM] Env var init error:', e.message); }
+} else {
+    console.warn('[FCM] No Firebase credentials found - push notifications disabled');
 }
 
 // ─── HELPER: Check if today is a system holiday ─────────────────────────────
@@ -286,7 +293,37 @@ async function sendSmartNotification(userId, templateKey, vars = {}, category = 
 // ─── WEATHER ALERTS ENGINE v2.0 — Context-Aware + Anti-Spam ────────────────
 
 // Persistent tracker: remembers last weather state to only alert on CHANGES
+// Uses DB-backed persistence to survive Railway restarts
 let lastWeatherState = { condition: null, tempBucket: null, timePhase: null };
+let weatherStateLoaded = false;
+
+async function loadWeatherState() {
+    if (weatherStateLoaded) return;
+    try {
+        const rows = await queryAll("SELECT value FROM app_state WHERE key = 'last_weather' LIMIT 1");
+        if (rows.length > 0) {
+            lastWeatherState = JSON.parse(rows[0].value);
+            console.log('[WEATHER] Restored state from DB:', lastWeatherState);
+        }
+    } catch (e) {
+        // Table might not exist yet — create it
+        try {
+            await queryAll('CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT, updated_at TIMESTAMP DEFAULT NOW())');
+        } catch (ce) { /* ignore */ }
+    }
+    weatherStateLoaded = true;
+}
+
+async function saveWeatherState(state) {
+    try {
+        await queryAll(
+            `INSERT INTO app_state (key, value, updated_at) VALUES ('last_weather', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+            [JSON.stringify(state)]
+        );
+    } catch (e) {
+        console.warn('[WEATHER] Failed to persist state:', e.message);
+    }
+}
 
 function getTimePhase() {
     const now = new Date();
@@ -360,8 +397,8 @@ const SMART_WEATHER_COPY = {
 
     // HOT + EVENING (cooling down)
     'hot_evening': [
-        { title: "🌇 Cooling down now", body: "Still {temp}°C but the sun's backing off. Relief incoming 🌅" },
-        { title: "🌆 Evening breeze approaching", body: "{temp}°C but it's cooling down. Perfect time for a campus walk" },
+        { title: "🌅 Cooling down now", body: "Still {temp}°C but the sun's backing off. Relief incoming ✨" },
+        { title: "🌙 Evening breeze approaching", body: "{temp}°C but it's cooling down. Perfect time for a campus walk" },
     ],
 
     // PLEASANT
@@ -383,6 +420,9 @@ const SMART_WEATHER_COPY = {
 async function checkWeatherAlerts() {
     try {
         const axios = require('axios');
+        
+        // Load persisted state from DB (survives Railway restarts)
+        await loadWeatherState();
         
         // Fetch CURRENT weather + next hour forecast
         const response = await axios.get(
@@ -412,8 +452,9 @@ async function checkWeatherAlerts() {
             return;
         }
         
-        // Update state tracker
+        // Update state tracker + persist to DB
         lastWeatherState = { ...newState };
+        await saveWeatherState(newState);
         
         // ── DETERMINE THE RIGHT TEMPLATE ──
         let templateKey = null;
