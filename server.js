@@ -238,6 +238,13 @@ async function start() {
         } catch (err) {
             console.error('[WARN] Smart notification engine failed:', err.message);
         }
+        try {
+            // Flush stale cache on every deploy to prevent stale timetable/schedule data
+            const { flushAll } = require('./services/cacheService');
+            setTimeout(() => flushAll().catch(e => console.warn('[CACHE] Startup flush failed:', e.message)), 5000);
+        } catch (err) {
+            console.error('[WARN] Cache flush failed:', err.message);
+        }
             
         console.log('[READY] ASTRA Services Synced.');
     });

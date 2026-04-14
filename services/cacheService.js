@@ -76,7 +76,8 @@ async function getOrSetCache(key, ttl, fetchFn) {
 
     // 3. FETCH FRESH DATA
     const freshData = await fetchFn();
-    if (freshData !== undefined && freshData !== null) {
+    // Don't cache empty arrays — prevents stale "no classes" from persisting
+    if (freshData !== undefined && freshData !== null && !(Array.isArray(freshData) && freshData.length === 0)) {
         const stringData = JSON.stringify(freshData);
         
         // VULN-026 FIX: Prevent Memory Leak by pruning local cache
@@ -128,6 +129,20 @@ async function invalidateCache(keyPattern) {
     }
 }
 
+async function flushAll() {
+    console.log('[CACHE] Flushing ALL cache...');
+    localCache.clear();
+    localExpiries.clear();
+    if (redisClient && !isRedisOffline) {
+        try {
+            await redisClient.flushAll();
+            console.log('[CACHE] Redis flushed successfully');
+        } catch (e) {
+            console.warn('[CACHE] Redis flush failed:', e.message);
+        }
+    }
+}
+
 function isRedisConnected() {
     return !!redisClient && !isRedisOffline;
 }
@@ -135,6 +150,7 @@ function isRedisConnected() {
 module.exports = {
     getOrSetCache,
     invalidateCache,
+    flushAll,
     isRedisConnected,
     getRedisClient: () => redisClient
 };
