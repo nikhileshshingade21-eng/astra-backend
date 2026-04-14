@@ -1,20 +1,11 @@
 require('dotenv').config();
-const { queryAll } = require('./database_module.js');
+const { queryAll } = require('./database_module');
 
-async function checkSchema() {
-    try {
-        const rows = await queryAll(`
-            SELECT column_name, data_type 
-            FROM information_schema.columns 
-            WHERE table_name = 'campus_zones'
-        `);
-        console.log('Columns in campus_zones:');
-        rows.forEach(row => console.log(`- ${row.column_name} (${row.data_type})`));
-        process.exit(0);
-    } catch (err) {
-        console.error('Error checking schema:', err);
-        process.exit(1);
-    }
+async function check() {
+    const rows = await queryAll(
+        "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_name IN ('academic_calendar','classes','attendance','users') ORDER BY table_name, ordinal_position"
+    );
+    console.log(JSON.stringify(rows, null, 2));
+    process.exit(0);
 }
-
-checkSchema();
+check();
