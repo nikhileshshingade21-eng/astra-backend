@@ -36,7 +36,8 @@ const getAttendanceDrift = async (studentId, historicalMarks, recentAttendance) 
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+// Trim added to strip invisible spaces that accidentally get copied!
+const genAI = new GoogleGenerativeAI((process.env.GEMINI_API_KEY || '').trim());
 const chat = async (studentId, message) => {
     let metadata = { sentiment: 'Neutral', topic: 'General' };
 
@@ -113,10 +114,10 @@ const chat = async (studentId, message) => {
         };
 
     } catch (err) {
-        console.error('Gemini Chat Error:', err.message);
+        console.error('Gemini Chat Error Details:', err);
         return {
             user_id: studentId,
-            response: `I'm having trouble connecting to my Google AI core (Gemini).\nMake sure my GEMINI_API_KEY is active!`,
+            response: `I'm having trouble connecting to my Google AI core (Gemini).\nError: ${err.message || 'API Key Invalid'}\nMake sure my GEMINI_API_KEY is active!`,
             confidence: 0,
             source: 'ASTRA_Fallback',
             metadata
