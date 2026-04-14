@@ -88,17 +88,17 @@ const COPY = {
 
     // Class reminders
     class_10min: [
-        { title: "📚 {subject} in 10 mins", body: "Room {room} is calling. Don't be that person who walks in late 💀" },
-        { title: "⏰ Heads up!", body: "{subject} starts in 10. Room {room}. Move it or lose it 🏃" },
-        { title: "🎯 Class alert", body: "{subject} in 10 mins at {room}. Your seat is getting cold 🪑" },
+        { title: "📚 {subject} in 10 mins", body: "Class is happening at Room {room}. Start packing up and head over there! 🎒" },
+        { title: "⏰ Heads up!", body: "{subject} starts in 10 mins. Your destination is Room {room}. Start walking! 🚶" },
+        { title: "🎯 Class routing", body: "{subject} in 10 mins at Room {room}. Don't be late! 🏫" },
     ],
     class_5min: [
-        { title: "🏃 You should be WALKING", body: "{subject} starts in 5 mins. Room {room}. NOW." },
-        { title: "⚡ 5 MIN WARNING", body: "{subject} @ {room}. If you're still in bed, it's over 😭" },
+        { title: "🏃 GO FAST: Class starts soon", body: "{subject} starts in exactly 5 mins. Walk fast to Room {room} NOW. ⏱️" },
+        { title: "⚡ 5 MIN WARNING", body: "You should be near Room {room}. {subject} is almost starting! Hurry up! 🏃" },
     ],
     class_started: [
-        { title: "🔔 {subject} has STARTED", body: "Class is live at {room}. Mark your attendance before it's too late! ✅" },
-        { title: "💀 Bro your class started", body: "{subject} @ {room}. Clock is ticking on attendance 🕐" },
+        { title: "🔔 {subject} has STARTED", body: "Class is live at Room {room}. Get inside and mark your attendance fast! ✅" },
+        { title: "🚨 You're officially late", body: "{subject} just started at Room {room}. Get there ASAP to save your attendance! 🕐" },
     ],
 
     // Attendance nudges
@@ -712,32 +712,107 @@ async function sendMorningDigest() {
         
         if (currentDay === 'Sunday') return;
         
-        const students = await queryAll(`
-            SELECT DISTINCT u.id, u.programme, u.section
-            FROM users u WHERE u.role = 'student'
-        `);
+        // 1. Fetch current weather for the digest
+        let weatherString = "🌤️ Perfect weather for campus!";
+        let safetyPrecaution = "Touch grass era activated 🌿";
+        try {
+            const axios = require('axios');
+            const wRes = await axios.get(
+                'https://api.open-meteo.com/v1/forecast?latitude=17.385&longitude=78.4867&current=temperature_2m,weather_code&timezone=Asia%2FKolkata',
+                { timeout: 8000 }
+            );
+            if (wRes.data && wRes.data.current) {
+                const temp = Math.round(wRes.data.current.temperature_2m);
+                const code = wRes.data.current.weather_code;
+                const condition = getWeatherCondition(code);
+                
+                if (['heavy_rain', 'rain', 'drizzle', 'thunderstorm'].includes(condition)) {
+                    weatherString = `🌧️ ${temp}°C and Raining`;
+                    safetyPrecaution = "Carry an umbrella today! ☔";
+                } else if (temp >= 35) {
+                    weatherString = `🔥 ${temp}°C (Sunny/Hot)`;
+                    safetyPrecaution = "Hydrate or diedrate fr 💧";
+                } else if (temp <= 18) {
+                    weatherString = `🥶 ${temp}°C (Cold)`;
+                    safetyPrecaution = "Layer up today 🧣";
+                } else {
+                    weatherString = `🌤️ ${temp}°C (Pleasant)`;
+                }
+            }
+        } catch(e) {
+            console.log('[MORNING DIGEST] Weather fetch failed, using fallback.');
+        }
+        
+        // 2. Process groups by programme and section
+        const groups = await queryAll(`
+            SELECT DISTINCT programme, section FROM classes WHERE day = $1
+        `, [currentDay]);
         
         let sent = 0;
+        const adminIdResult = await queryAll("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
+        const adminId = adminIdResult.length > 0 ? adminIdResult[0].id : null;
         
-        for (const student of students) {
+        for (const group of groups) {
             const classes = await queryAll(`
                 SELECT start_time, name FROM classes 
                 WHERE programme = $1 AND section = $2 AND day = $3
                 ORDER BY start_time ASC
-            `, [student.programme, student.section, currentDay]);
+            `, [group.programme, group.section, currentDay]);
             
             if (classes.length === 0) continue;
             
-            const firstClass = formatTime(classes[0].start_time);
-            const classCount = classes.length;
+            // Format class schedule list
+            let classListText = classes.map(c => `• ${formatTime(c.start_time)} - ${c.name}`).join('\n');
+            const digestBody = `${weatherString}\n${safetyPrecaution}\n\nYour Schedule Today:\n${classListText}`;
             
-            const didSend = await sendSmartNotification(
-                student.id, 'morning', { classCount, firstClass }, 'morning', 'info'
-            );
-            if (didSend) sent++;
+            // Create a section-level Announcement
+            if (adminId) {
+                await queryAll(`
+                    INSERT INTO announcements (title, content, category, section, user_id)
+                    VALUES ($1, $2, 'Daily Briefing', $3, $4)
+                `, ["☀️ Good morning! Daily Briefing", digestBody, group.section, adminId]);
+            }
+            
+            // Dispatch personalized notifications
+            const students = await queryAll(`
+                SELECT id, fcm_token FROM users WHERE role = 'student' AND programme = $1 AND section = $2
+            `, [group.programme, group.section]);
+            
+            for (const student of students) {
+                try {
+                    // Log in personal notification center
+                    await queryAll(
+                        `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, 'morning')`,
+                        [student.id, "☀️ Your Morning Briefing", digestBody]
+                    );
+                    
+                    // Fire real-time in-app
+                    if (typeof socketService !== 'undefined' && socketService.emitToUser) {
+                       socketService.emitToUser(student.id, 'LIVE_NOTIFICATION', {
+                           title: "☀️ Your Morning Briefing", body: digestBody, type: 'morning',
+                           timestamp: new Date().toISOString()
+                       });
+                    }
+                    
+                    // Fire FCM
+                    if (firebaseReady && student.fcm_token) {
+                        try {
+                            // Note: we're using data-only for high-priority bypass to avoid suppression
+                            await admin.messaging().send({
+                                data: { title: "☀️ Your Morning Briefing", body: digestBody, type: 'morning' },
+                                token: student.fcm_token,
+                                android: { priority: 'high' }
+                            });
+                        } catch(e) {}
+                    }
+                    sent++;
+                    
+                    recordNotificationSent(student.id, 'morning');
+                } catch(err) {}
+            }
         }
         
-        console.log(`[MORNING DIGEST] Sent to ${sent} students`);
+        console.log(`[MORNING DIGEST] Advanced Routing Complete: Sent to ${sent} students across ${groups.length} sections`);
     } catch (err) {
         console.error('[MORNING DIGEST] Error:', err.message);
     }

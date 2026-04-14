@@ -57,15 +57,15 @@ function startSmartScheduler() {
     }, { timezone: 'Asia/Kolkata' });
     console.log('  ✅ Weather alerts: every 30min (6AM-10PM)');
     
-    // ─── MORNING DIGEST: 7:30 AM IST (Mon-Sat) ─────────────────────────
-    cron.schedule('30 7 * * 1-6', async () => {
+    // ─── MORNING DIGEST: 8:00 AM IST (Mon-Sat) ─────────────────────────
+    cron.schedule('0 8 * * 1-6', async () => {
         try {
             await sendMorningDigest();
         } catch (e) {
             console.error('[SMART SCHEDULER] Morning digest error:', e.message);
         }
     }, { timezone: 'Asia/Kolkata' });
-    console.log('  ✅ Morning digest: 7:30 AM IST (Mon-Sat)');
+    console.log('  ✅ Morning digest: 8:00 AM IST (Mon-Sat)');
     
     // ─── ATTENDANCE NUDGES + STREAKS: 9:00 PM IST daily ─────────────────
     cron.schedule('0 21 * * *', async () => {
