@@ -83,10 +83,10 @@ const chat = async (studentId, message) => {
 
         // 3. Fetch Calendar Context
         const events = await queryAll(
-            `SELECT title, start_date, event_type FROM academic_calendar WHERE start_date >= CURRENT_DATE ORDER BY start_date LIMIT 3`
+            `SELECT event_name, start_date, type FROM academic_calendar WHERE start_date >= CURRENT_DATE ORDER BY start_date LIMIT 3`
         );
         if (events.length > 0) {
-            const list = events.map(e => `${e.title} (${e.start_date})`).join(', ');
+            const list = events.map(e => `${e.event_name} (${e.start_date})`).join(', ');
             contextArray.push(`Upcoming campus events/holidays: ${list}.`);
         }
 
