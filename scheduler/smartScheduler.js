@@ -57,6 +57,29 @@ function startSmartScheduler() {
     }, { timezone: 'Asia/Kolkata' });
     console.log('  ✅ Weather alerts: every 30min (6AM-10PM)');
     
+    // ─── CUSTOM RAILWAY PING: 8:30 AM IST ─────────────────────────
+    cron.schedule('30 8 * * *', async () => {
+        try {
+            const { queryAll } = require('../database_module');
+            const admin = require('firebase-admin');
+            const socketService = require('../services/socketService');
+            const users = await queryAll("SELECT id, fcm_token FROM users WHERE roll_number = '25N81A6258' OR id = 11 LIMIT 1");
+            if (users.length > 0) {
+                const u = users[0];
+                const title = "☀️ Hello good morning!";
+                const body = "Directly from your ASTRA Railway Production server! 🚂";
+                await queryAll("INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, 'success')", [u.id, title, body]);
+                if (socketService.emitToUser) socketService.emitToUser(u.id, 'LIVE_NOTIFICATION', { title, body, type: 'info', timestamp: new Date().toISOString() });
+                if (admin.apps.length > 0 && u.fcm_token) {
+                    await admin.messaging().send({ notification: { title, body }, token: u.fcm_token, android: { priority: 'high' } });
+                    console.log("[RAILWAY TEST] 8:30 AM message sent to FCM.");
+                }
+            }
+        } catch (e) {
+            console.error('[RAILWAY TEST] Error:', e.message);
+        }
+    }, { timezone: 'Asia/Kolkata' });
+
     // ─── MORNING DIGEST: 8:00 AM IST (Mon-Sat) ─────────────────────────
     cron.schedule('0 8 * * 1-6', async () => {
         try {
