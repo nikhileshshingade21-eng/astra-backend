@@ -440,8 +440,12 @@ const sendNotification = async (req, res) => {
         // FIREBASE MULTICAST (Data Only for Notifee wakeups)
         const fcmRes = await admin.messaging().sendEachForMulticast({
             tokens: tokens,
+            notification: { title, body: message },
             data: { title, body: message, type: type || 'admin_broadcast', template: 'manual' },
-            android: { priority: 'high' }
+            android: { 
+                priority: 'high',
+                notification: { sound: 'default', channelId: 'astra-high-priority' }
+            }
         });
 
         // Loop array to log history
