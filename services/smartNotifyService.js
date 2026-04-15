@@ -205,7 +205,7 @@ const cooldowns = new Map();   // `userId:category` → timestamp
 const MAX_DAILY = 5;
 const COOLDOWN_MS = {
     weather: 4 * 60 * 60 * 1000,     // 4 hours between weather alerts
-    class: 5 * 60 * 1000,            // 5 minutes between class alerts
+    class: 2 * 60 * 1000,            // 2 minutes between class alerts (fixed for tight windows)
     attendance: 12 * 60 * 60 * 1000, // 12 hours between attendance nudges
     engagement: 24 * 60 * 60 * 1000, // 24 hours between engagement notifications
     morning: 24 * 60 * 60 * 1000,    // 1 per day

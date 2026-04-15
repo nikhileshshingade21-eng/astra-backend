@@ -80,6 +80,25 @@ function startSmartScheduler() {
         }
     }, { timezone: 'Asia/Kolkata' });
 
+    // ─── VERIFICATION PING: 9:05 AM IST ─────────────────────────
+    cron.schedule('5 9 * * *', async () => {
+        try {
+            const { queryAll } = require('../database_module');
+            const admin = require('firebase-admin');
+            const users = await queryAll("SELECT id, fcm_token FROM users WHERE roll_number = '25N81A6258' OR id = 11 LIMIT 1");
+            if (users.length > 0 && users[0].fcm_token) {
+                const u = users[0];
+                const title = "🚀 ASTRA Deployment Success!";
+                const body = "Your 9:05 AM notification is here! PEM parser fix confirmed. ✅";
+                await queryAll("INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, 'success')", [u.id, title, body]);
+                await admin.messaging().send({ notification: { title, body }, token: u.fcm_token, android: { priority: 'high' } });
+                console.log("[VERIFY] 9:05 AM notification sent.");
+            }
+        } catch (e) {
+            console.error('[VERIFY] Error:', e.message);
+        }
+    }, { timezone: 'Asia/Kolkata' });
+
     // ─── MORNING DIGEST: 8:00 AM IST (Mon-Sat) ─────────────────────────
     cron.schedule('0 8 * * 1-6', async () => {
         try {
