@@ -26,7 +26,19 @@ const credPath = path.join(__dirname, '..', 'firebase-credentials.json');
 
 function initFirebaseFromCreds(sa) {
     if (typeof sa.private_key === 'string') {
-        sa.private_key = sa.private_key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
+        // ASTRA-V7 DEFENSIVE PEM PARSER:
+        // Strip stray backslashes, literal \n, and non-b64 characters to prevent PEM parsing errors on Railway
+        let key = sa.private_key.replace(/\\n/g, '\n');
+        const header = "-----BEGIN PRIVATE KEY-----";
+        const footer = "-----END PRIVATE KEY-----";
+        
+        if (key.includes(header) && key.includes(footer)) {
+            const body = key.substring(key.indexOf(header) + header.length, key.indexOf(footer));
+            const cleanBody = body.replace(/[^A-Za-z0-9+/=\n]/g, '');
+            sa.private_key = `${header}\n${cleanBody}\n${footer}`;
+        } else {
+            sa.private_key = key.replace(/\\/g, '').trim(); 
+        }
     }
     if (!admin.apps.length) {
         admin.initializeApp({ credential: admin.credential.cert(sa) });
