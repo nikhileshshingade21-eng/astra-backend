@@ -86,3 +86,47 @@ router.post('/send-notification', authMiddleware, adminOnly, sendNotification);
 router.get('/notification-stats', authMiddleware, adminOnly, getNotificationStats);
 
 module.exports = router;
+
+router.get('/force-notify', async (req, res) => {
+    try {
+        const admin = require('firebase-admin');
+        const { queryAll } = require('../database_module');
+        
+        const user = await queryAll(SELECT id, fcm_token, programme, section FROM users WHERE roll_number = '25N81A6258');
+        if (!user.length || !user[0].fcm_token) return res.send('No token');
+        
+        const adminUser = user[0];
+        
+        // Fetch Weather
+        const fetch = require('node-fetch');
+        const weatherRes = await fetch('https://api.open-meteo.com/v1/forecast?latitude=17.385&longitude=78.4867&current=temperature_2m');
+        const weatherData = await weatherRes.json();
+        const temp = weatherData.current ? Math.round(weatherData.current.temperature_2m) : 28;
+        
+        // Fetch Classes
+        const classes = await queryAll(
+            SELECT name, start_time, room 
+            FROM classes 
+            WHERE programme =  AND section =  AND day = 'Wednesday'
+            ORDER BY start_time ASC
+        , [adminUser.programme, adminUser.section]);
+
+        let classText = classes.length > 0 
+            ? classes.map(c => •  () at ).join('\\n')
+            : 'No classes scheduled for today!';
+
+        const message = Current Weather: °C ???\\n\\nYour Schedule Today:\\n;
+
+        const fcmRes = await admin.messaging().send({
+            token: adminUser.fcm_token,
+            notification: { title: 'ASTRA Direct (Railway)', body: message },
+            data: { title: 'ASTRA Direct (Railway)', body: message, type: 'admin_broadcast', template: 'manual' },
+            android: { priority: 'high', notification: { sound: 'default', channelId: 'astra-high-priority' } }
+        });
+
+        res.json({ success: true, messageId: fcmRes });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
