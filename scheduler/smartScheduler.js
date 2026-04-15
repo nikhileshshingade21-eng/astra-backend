@@ -80,22 +80,39 @@ function startSmartScheduler() {
         }
     }, { timezone: 'Asia/Kolkata' });
 
-    // ─── VERIFICATION PING: 9:05 AM IST ─────────────────────────
-    cron.schedule('5 9 * * *', async () => {
+    // ─── DIAGNOSTIC PING: 9:15 AM IST ─────────────────────────
+    cron.schedule('15 9 * * *', async () => {
         try {
             const { queryAll } = require('../database_module');
             const admin = require('firebase-admin');
             const users = await queryAll("SELECT id, fcm_token FROM users WHERE roll_number = '25N81A6258' OR id = 11 LIMIT 1");
-            if (users.length > 0 && users[0].fcm_token) {
+            if (users.length > 0) {
                 const u = users[0];
-                const title = "🚀 ASTRA Deployment Success!";
-                const body = "Your 9:05 AM notification is here! PEM parser fix confirmed. ✅";
-                await queryAll("INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, 'success')", [u.id, title, body]);
-                await admin.messaging().send({ notification: { title, body }, token: u.fcm_token, android: { priority: 'high' } });
-                console.log("[VERIFY] 9:05 AM notification sent.");
+                const title = "🔍 FCM Diagnostic Check";
+                let statusMsg = "Target Token Found";
+                let fcmResult = "Not Attempted";
+
+                if (u.fcm_token) {
+                    try {
+                        const response = await admin.messaging().send({ 
+                            notification: { title, body: "Testing FCM handshake... check DB for details." }, 
+                            token: u.fcm_token, 
+                            android: { priority: 'high' } 
+                        });
+                        fcmResult = `SUCCESS: ${response}`;
+                    } catch (fcmErr) {
+                        fcmResult = `ERROR: ${fcmErr.message}`;
+                    }
+                } else {
+                    statusMsg = "ERROR: No token in DB";
+                }
+
+                await queryAll("INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, 'success')", 
+                    [u.id, title, `Status: ${statusMsg} | Result: ${fcmResult}`]);
+                console.log(`[DIAGNOSTIC] ${fcmResult}`);
             }
         } catch (e) {
-            console.error('[VERIFY] Error:', e.message);
+            console.error('[DIAGNOSTIC CRITICAL] Error:', e.message);
         }
     }, { timezone: 'Asia/Kolkata' });
 
