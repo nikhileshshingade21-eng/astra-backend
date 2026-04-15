@@ -782,7 +782,7 @@ async function sendMorningDigest() {
                 try {
                     // Log in personal notification center
                     await queryAll(
-                        `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, 'morning')`,
+                        `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, 'info')`,
                         [student.id, "☀️ Your Morning Briefing", digestBody]
                     );
                     
