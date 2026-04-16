@@ -16,16 +16,19 @@ const verify = async (req, res) => {
         const existing = await queryAll('SELECT id FROM users WHERE roll_number = $1', [cleanRoll]);
         
         // CHECK INSTITUTIONAL REGISTRY (Phase 4)
-        const verified = await queryAll('SELECT id FROM verified_students WHERE roll_number = $1', [cleanRoll]);
+        const verified = await queryAll('SELECT id, programme, section FROM verified_students WHERE roll_number = $1', [cleanRoll]);
 
         // SEC-004 FIX: Return same structure regardless of existence to prevent enumeration
         const exists = existing.length > 0;
         const isVerified = verified.length > 0;
+        const officialData = verified.length > 0 ? verified[0] : null;
 
         res.success({ 
             received: true, 
             valid: isVerified, // Student must be in verified_students to be "valid" for registration
-            registered: exists // If they are already in users, they are "registered"
+            registered: exists, // If they are already in users, they are "registered"
+            programme: officialData ? officialData.programme : null,
+            section: officialData ? officialData.section : null
         });
     } catch (err) {
         res.error('Verification failed', null, 500);
