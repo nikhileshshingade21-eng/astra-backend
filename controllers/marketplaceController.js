@@ -25,7 +25,7 @@ const getItems = async (req, res) => {
             seller_id: row.seller_id
         }));
 
-        res.success(items);
+        res.success({ items });
     } catch (err) {
         console.error('Marketplace error:', err.message);
         res.error('Failed to fetch items', null, 500);

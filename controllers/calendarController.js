@@ -8,7 +8,7 @@ const { queryAll } = require('../database_module');
 const getAllEvents = async (req, res) => {
     try {
         const events = await queryAll('SELECT * FROM academic_calendar ORDER BY start_date ASC');
-        res.success(events);
+        res.success({ events: events || [] });
     } catch (err) {
         console.error('Calendar Fetch Error:', err);
         res.error('Failed to fetch calendar events', null, 500);

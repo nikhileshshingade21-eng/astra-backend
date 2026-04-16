@@ -36,7 +36,7 @@ const getMyMarks = async (req, res) => {
             [req.user.id]
         );
 
-        res.success(result);
+        res.success({ marks: result || [] });
     } catch (err) {
         console.error('Get marks error:', err);
         res.error('Failed to fetch marks', null, 500);

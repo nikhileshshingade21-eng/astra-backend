@@ -44,7 +44,7 @@ const getMyLeaves = async (req, res) => {
             [req.user.id]
         );
 
-        res.success(result || []);
+        res.success({ leaves: result || [] });
     } catch (err) {
         console.error('Get leaves error:', err.message);
         res.error('Failed to fetch leave requests', null, 500);
@@ -79,7 +79,7 @@ const getPendingLeaves = async (req, res) => {
             );
         }
 
-        res.success(result || []);
+        res.success({ leaves: result || [] });
     } catch (err) {
         console.error('Get pending leaves error:', err.message);
         res.error('Failed to fetch pending leaves', null, 500);

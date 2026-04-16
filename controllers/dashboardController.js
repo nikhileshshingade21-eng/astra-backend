@@ -183,7 +183,7 @@ const getDashboardStats = async (req, res) => {
             subjects,
             today_count: todayCount,
             recent,
-            daily_stats: dailyStats
+            weekly_pulse: dailyStats
         };
 
         // --- NEW: BUNK CALCULATOR LOGIC (Mathematically Accurate) ---

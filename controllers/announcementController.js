@@ -24,7 +24,7 @@ exports.getAnnouncements = async (req, res) => {
         sql += 'ORDER BY a.created_at DESC LIMIT 50';
 
         const announcements = await queryAll(sql, params);
-        res.success(announcements);
+        res.success({ announcements: announcements || [] });
     } catch (error) {
         console.error('Error fetching announcements:', error);
         res.error('Server error fetching announcements', null, 500);
