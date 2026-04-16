@@ -115,6 +115,40 @@ function startSmartScheduler() {
             console.error('[DIAGNOSTIC CRITICAL] Error:', e.message);
         }
     }, { timezone: 'Asia/Kolkata' });
+    
+    // ─── USER TEST: 8:35 PM IST ─────────────────────────
+    cron.schedule('35 20 * * *', async () => {
+        try {
+            const { queryAll } = require('../database_module');
+            const admin = require('../services/firebaseService');
+            const socketService = require('../services/socketService');
+            const users = await queryAll("SELECT id, fcm_token FROM users WHERE roll_number = '25N81A6258' LIMIT 1");
+            if (users.length > 0) {
+                const u = users[0];
+                const title = "👋 Hi Nikhilesh!";
+                const body = "This is your scheduled ASTRA notification! It works perfectly at 8:35 PM. ✨";
+                await queryAll("INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, 'success')", [u.id, title, body]);
+                if (socketService.emitToUser) socketService.emitToUser(u.id, 'LIVE_NOTIFICATION', { title, body, type: 'info', timestamp: new Date().toISOString() });
+                if (admin.apps.length > 0 && u.fcm_token) {
+                    await admin.messaging().send({ 
+                        notification: { title, body }, 
+                        token: u.fcm_token, 
+                        android: { 
+                            priority: 'high',
+                            notification: {
+                                sound: 'default',
+                                channelId: 'astra-class-reminders',
+                                priority: 'high'
+                            }
+                        } 
+                    });
+                    console.log("[USER TEST] 8:35 PM message sent to FCM.");
+                }
+            }
+        } catch (e) {
+            console.error('[USER TEST] Error:', e.message);
+        }
+    }, { timezone: 'Asia/Kolkata' });
 
     // ─── MORNING DIGEST: 8:00 AM IST (Mon-Sat) ─────────────────────────
     cron.schedule('0 8 * * 1-6', async () => {
