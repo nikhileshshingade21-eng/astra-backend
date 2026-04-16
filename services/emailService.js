@@ -89,7 +89,23 @@ const sendAttendanceReport = async (adminEmail, stats) => {
     return sendEmail(adminEmail, `ASTRA: Attendance Report - ${new Date().toLocaleDateString()}`, html);
 };
 
+const sendFeedbackEmail = async (userId, userRoll, type, message) => {
+    const html = `
+        <div style="font-family: sans-serif; padding: 20px;">
+            <h2>New Feedback Received</h2>
+            <p><strong>User:</strong> ${userRoll} (ID: ${userId})</p>
+            <p><strong>Type:</strong> ${type}</p>
+            <p><strong>Message:</strong></p>
+            <blockquote style="background: #f4f4f4; padding: 10px; border-left: 5px solid #ccc;">
+                ${message}
+            </blockquote>
+        </div>
+    `;
+    return sendEmail('admin@astra.college', `ASTRA Feedback: ${type.toUpperCase()}`, html);
+};
+
 module.exports = {
     sendEmail,
-    sendAttendanceReport
+    sendAttendanceReport,
+    sendFeedbackEmail
 };
