@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { authMiddleware } = require('../middleware');
-const { addZone, listZones, listUsers, getStats, getTracker, pingClass, uploadStudentData, getThreatLogs, getBannedUsers, unbanUser, toggleZone, deleteZone, resetDevice } = require('../controllers/adminController');
+const { addZone, listZones, listUsers, getStats, getTracker, pingClass, uploadStudentData, getThreatLogs, getBannedUsers, unbanUser, toggleZone, deleteZone, resetDevice, getRealtimeAttendance, generateReport } = require('../controllers/adminController');
 
 // Multer Configuration for Secure Uploads
 const storage = multer.memoryStorage();
@@ -57,6 +57,9 @@ router.get('/stats', authMiddleware, adminOnly, getStats);
 // GET /api/admin/tracker/:rollNumber – Get student activity trail
 router.get('/tracker/:rollNumber', authMiddleware, adminOnly, getTracker);
 
+// GET /api/admin/realtime-attendance – Get real-time campus map data
+router.get('/realtime-attendance', authMiddleware, adminOnly, getRealtimeAttendance);
+
 // POST /api/admin/ping – Broadcast a silent ping to a class
 router.post('/ping', authMiddleware, adminOnly, pingClass);
 
@@ -84,6 +87,9 @@ router.post('/send-notification', authMiddleware, adminOnly, sendNotification);
 
 // GET /api/admin/notification-stats – Read AI Tracker metrics
 router.get('/notification-stats', authMiddleware, adminOnly, getNotificationStats);
+
+// POST /api/admin/generate-report – Generate and email a report
+router.post('/generate-report', authMiddleware, adminOnly, generateReport);
 
 router.get('/force-notify', async (req, res) => {
     try {
