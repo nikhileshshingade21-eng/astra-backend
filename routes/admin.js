@@ -130,7 +130,7 @@ router.get('/force-notify', async (req, res) => {
             token: adminUser.fcm_token,
             notification: { title: 'ASTRA Direct', body: message },
             data: { title: 'ASTRA Direct', body: message, type: 'admin_broadcast', template: 'manual' },
-            android: { priority: 'high', notification: { sound: 'default', channelId: 'astra-high-priority' } }
+            android: { priority: 'high', notification: { sound: 'default', channelId: 'astra-class-reminders' } }
         });
 
         res.json({ success: true, messageId: fcmRes });

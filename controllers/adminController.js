@@ -459,7 +459,7 @@ const sendNotification = async (req, res) => {
             data: { title, body: message, type: type || 'admin_broadcast', template: 'manual' },
             android: { 
                 priority: 'high',
-                notification: { sound: 'default', channelId: 'astra-high-priority' }
+                notification: { sound: 'default', channelId: 'astra-class-reminders' }
             }
         });
 

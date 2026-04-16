@@ -52,10 +52,7 @@ const sendNotification = async (userId, type, payload = {}) => {
             token: user.fcm_token,
             notification: { title, body },
             data: { type, ...payload },
-            android: {
-                priority: template.priority || 'high',
-                notification: { channelId: 'astra-high-priority' }
-            }
+            android: { priority: 'high', notification: { sound: 'default', channelId: 'astra-class-reminders' } }
         };
 
         const response = await admin.messaging().send(message);
