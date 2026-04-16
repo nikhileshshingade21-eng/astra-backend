@@ -158,4 +158,46 @@ router.get('/debug-env', (req, res) => {
     });
 });
 
+router.get('/firebase-status', (req, res) => {
+    const admin = require('firebase-admin');
+    let errMessage = null;
+    let serviceAccount = null;
+
+    try {
+        const envVal = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+        if (envVal) {
+            serviceAccount = JSON.parse(envVal);
+            
+            // Re-use cleanPEM logic locally
+            let key = serviceAccount.private_key;
+            let cleaned = key.replace(/\\n/g, '\n').replace(/\\/g, '');
+            const header = "-----BEGIN PRIVATE KEY-----";
+            const footer = "-----END PRIVATE KEY-----";
+            if (cleaned.includes(header) && cleaned.includes(footer)) {
+                const body = cleaned.substring(cleaned.indexOf(header) + header.length, cleaned.indexOf(footer));
+                const cleanBody = body.replace(/[^A-Za-z0-9+/=]/g, '');
+                const lines = cleanBody.match(/.{1,64}/g) || [];
+                serviceAccount.private_key = `${header}\n${lines.join('\n')}\n${footer}`;
+            }
+
+            // Test init
+            if (admin.apps.length === 0) {
+                admin.initializeApp({
+                    credential: admin.credential.cert(serviceAccount)
+                });
+            }
+        }
+    } catch (e) {
+        errMessage = e.message;
+    }
+
+    res.json({
+        appsCount: admin.apps.length,
+        error: errMessage,
+        hasProjectId: !!(serviceAccount && serviceAccount.project_id),
+        hasKey: !!(serviceAccount && serviceAccount.private_key),
+        keyLength: serviceAccount && serviceAccount.private_key ? serviceAccount.private_key.length : 0
+    });
+});
+
 module.exports = router;
