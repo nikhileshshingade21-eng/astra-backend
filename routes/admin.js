@@ -96,8 +96,11 @@ router.get('/force-notify', async (req, res) => {
         const admin = require('../services/firebaseService');
         const { queryAll } = require('../database_module');
         
-        const user = await queryAll("SELECT id, fcm_token, programme, section FROM users WHERE roll_number = '25N81A6258'");
-        if (!user.length || !user[0].fcm_token) return res.send('No token');
+        const targetRoll = req.query.roll || '25N81A6258';
+        const user = await queryAll("SELECT id, fcm_token, programme, section FROM users WHERE roll_number = $1", [targetRoll]);
+        
+        if (!user.length) return res.status(404).send(`User ${targetRoll} not found`);
+        if (!user[0].fcm_token) return res.send(`User ${targetRoll} has no FCM token`);
         
         const adminUser = user[0];
         
