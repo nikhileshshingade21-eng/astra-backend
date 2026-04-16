@@ -221,6 +221,10 @@ const getMe = (req, res) => {
 
 const forgotPassword = async (req, res) => {
     try {
+        const { roll_number } = req.body;
+        if (!roll_number) {
+            return res.error('Roll number is required', null, 400);
+        }
         const cleanRoll = roll_number.trim().toUpperCase();
         const userRes = await queryAll('SELECT id, name, email FROM users WHERE roll_number = $1', [cleanRoll]);
         if (userRes.length === 0 || !userRes[0].email) {
