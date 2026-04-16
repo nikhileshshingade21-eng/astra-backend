@@ -52,9 +52,20 @@ function initialize() {
 
     let serviceAccount = null;
 
+    // ─── STRATEGY 0: Base64 Encoded Env Var (Most Reliable) ───────────────
+    if (process.env.FIREBASE_BASE64) {
+        try {
+            const decoded = Buffer.from(process.env.FIREBASE_BASE64.trim(), 'base64').toString('utf8');
+            serviceAccount = JSON.parse(decoded);
+            console.log('[FIREBASE] Strategy 0: Loaded from FIREBASE_BASE64 env var');
+        } catch (e) {
+            console.error('[FIREBASE] Strategy 0 failed:', e.message);
+        }
+    }
+
     // ─── STRATEGY 1: Local credentials file (dev mode) ──────────────────
     const credPath = path.join(__dirname, '..', 'firebase-credentials.json');
-    if (fs.existsSync(credPath)) {
+    if (!serviceAccount && fs.existsSync(credPath)) {
         try {
             serviceAccount = require(credPath);
             console.log('[FIREBASE] Strategy 1: Loaded credentials from disk');
