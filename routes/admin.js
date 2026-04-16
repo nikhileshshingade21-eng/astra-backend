@@ -202,17 +202,18 @@ router.get('/firebase-status', (req, res) => {
 
 router.post('/fix-firebase', express.json(), (req, res) => {
     const fs = require('fs');
+    const path = require('path');
     try {
         const payload = req.body;
         if (!payload || !payload.private_key) {
             return res.status(400).json({ error: "Invalid payload missing private_key" });
         }
         
-        // Write to Railway persistent volume (Strategy 4)
-        fs.writeFileSync('/data/firebase-credentials.json', JSON.stringify(payload, null, 2));
+        const targetPath = path.join(__dirname, '..', 'firebase-credentials.json');
+        fs.writeFileSync(targetPath, JSON.stringify(payload, null, 2));
         
-        // Return success so the client knows to restart
-        res.json({ success: true, message: "Credentials permanently saved to production volume!" });
+        // Return success
+        res.json({ success: true, message: "Credentials permanently saved to root directory!", path: targetPath });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
