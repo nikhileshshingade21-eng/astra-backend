@@ -172,7 +172,7 @@ const cooldowns = new Map();   // `userId:category` → timestamp
 
 const MAX_DAILY = 5;
 const COOLDOWN_MS = {
-    weather: 4 * 60 * 60 * 1000,     // 4 hours between weather alerts
+    weather: 25 * 60 * 1000,         // Reduced to 25 mins to allow 30-min cron trigger
     class: 2 * 60 * 1000,            // 2 minutes between class alerts (fixed for tight windows)
     attendance: 12 * 60 * 60 * 1000, // 12 hours between attendance nudges
     engagement: 24 * 60 * 60 * 1000, // 24 hours between engagement notifications
@@ -183,9 +183,9 @@ const COOLDOWN_MS = {
 function canSendNotification(userId, category) {
     const today = new Date().toISOString().split('T')[0];
     
-    // Check daily limit
+    // Check daily limit (Weather category is EXEMPT from daily limits to allow 30-min updates)
     const userDay = dailyCounts.get(userId);
-    if (userDay && userDay.date === today && userDay.count >= MAX_DAILY) {
+    if (category !== 'weather' && userDay && userDay.date === today && userDay.count >= MAX_DAILY) {
         return false;
     }
     
@@ -455,10 +455,11 @@ async function checkWeatherAlerts() {
             lastWeatherState.timePhase !== newState.timePhase
         );
         
-        if (!stateChanged) {
-            console.log(`[WEATHER] No change detected (${condition}/${tempBucket}/${timePhase}). Skipping.`);
-            return;
-        }
+        // Note: Weather change detection disabled by owner request to ensure 30-min updates
+        // if (!stateChanged) {
+        //     console.log(`[WEATHER] No change detected (${condition}/${tempBucket}/${timePhase}). Skipping.`);
+        //     return;
+        // }
         
         // Update state tracker + persist to DB
         lastWeatherState = { ...newState };
@@ -492,8 +493,8 @@ async function checkWeatherAlerts() {
         else if (tempBucket === 'cold') {
             templateKey = timePhase === 'morning' ? 'cold_morning' : 'cold_evening';
         }
-        // Pleasant weather: only send once per day (don't spam good news)
-        else if (tempBucket === 'pleasant' && timePhase === 'morning') {
+        // Pleasant weather: allowed anytime since weather updates are now forced every 30m
+        else if (tempBucket === 'pleasant') {
             templateKey = 'pleasant_any';
         }
         
