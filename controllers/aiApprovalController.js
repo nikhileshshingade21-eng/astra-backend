@@ -9,9 +9,9 @@ exports.createApprovalRequest = async (req, res) => {
             [user_id, action_type, JSON.stringify(details)]
         );
         
-        res.status(201).json({ message: 'Approval request created.' });
+        res.success(null, 'Approval request created.');
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.error(err.message, null, 500);
     }
 };
 
@@ -32,9 +32,9 @@ exports.getPendingApprovals = async (req, res) => {
             created_at: row.created_at
         }));
 
-        res.json(approvals);
+        res.success(approvals);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.error(err.message, null, 500);
     }
 };
 
@@ -46,7 +46,7 @@ exports.respondToApproval = async (req, res) => {
         // Ensure the approval belongs to the user
         const check = await queryAll('SELECT id FROM ai_approvals WHERE id = $1 AND user_id = $2', [approval_id, userId]);
         if (!check || check.length === 0) {
-            return res.status(403).json({ error: 'Unauthorized or approval not found.' });
+            return res.error('Unauthorized or approval not found.', null, 403);
         }
 
         await queryAll('UPDATE ai_approvals SET status = $1 WHERE id = $2', [status, approval_id]);
@@ -56,8 +56,8 @@ exports.respondToApproval = async (req, res) => {
             console.log(`[ASTRA V3] Action Approved: ${approval_id}. Triggering execution...`);
         }
 
-        res.json({ message: `Action ${status}.` });
+        res.success(null, `Action ${status} successfully.`);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.error(err.message, null, 500);
     }
 };

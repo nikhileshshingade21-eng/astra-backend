@@ -354,10 +354,10 @@ const getDashboardStats = async (req, res) => {
             };
         }
 
-        res.json(responseData);
+        res.success(responseData);
     } catch (err) {
         console.error('Dashboard error:', err);
-        res.status(500).json({ error: 'Failed to fetch dashboard' });
+        res.error('Failed to fetch dashboard', null, 500);
     }
 };
 

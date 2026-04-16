@@ -24,10 +24,10 @@ const getNotifications = async (req, res) => {
         );
         const unread = unreadResult.length ? parseInt(unreadResult[0].count) : 0;
 
-        res.json({ notifications: result || [], unread });
+        res.success({ notifications: result || [], unread });
     } catch (err) {
         console.error('Notifications error:', err);
-        res.status(500).json({ error: 'Failed to fetch notifications' });
+        res.error('Failed to fetch notifications', null, 500);
     }
 };
 
@@ -35,9 +35,9 @@ const markAsRead = async (req, res) => {
     try {
         const db = await getDb();
         await queryAll('UPDATE notifications SET is_read = 1 WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
-        res.json({ success: true });
+        res.success(null, 'Notification marked as read');
     } catch (err) {
-        res.status(500).json({ error: 'Failed to update' });
+        res.error('Failed to update notification', null, 500);
     }
 };
 
@@ -45,9 +45,9 @@ const markAllAsRead = async (req, res) => {
     try {
         const db = await getDb();
         await queryAll('UPDATE notifications SET is_read = 1 WHERE user_id = $1', [req.user.id]);
-        res.json({ success: true });
+        res.success(null, 'All notifications marked as read');
     } catch (err) {
-        res.status(500).json({ error: 'Failed to update' });
+        res.error('Failed to update notifications', null, 500);
     }
 };
 

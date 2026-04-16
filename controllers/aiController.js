@@ -15,7 +15,7 @@ const getAiReport = async (req, res) => {
          
          const userRes = await queryAll('SELECT id FROM users WHERE roll_number = $1', [rollNumber.toUpperCase()]);
          if (userRes.length === 0) {
-              return res.status(404).json({ error: 'Student not found' });
+              return res.error('Student not found', null, 404);
          }
          
          const userId = userRes[0].id;
@@ -39,7 +39,7 @@ const getAiReport = async (req, res) => {
              aiService.getAttendanceDrift(userId, historicalMarks, recentAttendance)
          ]);
          
-         res.json({
+         res.success({
              student_id: userId,
              roll_number: rollNumber,
              prediction,
@@ -48,17 +48,15 @@ const getAiReport = async (req, res) => {
          
     } catch (err) {
         console.error("AI Controller Error:", err);
-        res.status(500).json({ error: "Failed to generate AI report" })
+        res.error("Failed to generate AI report", null, 500)
     }
 }
 
 const verifyIdentity = async (req, res) => {
     // SEC-001 STRICT UPGRADE: Custom AI Face recognition was deprecated.
     // The mobile application now enforces OS-level BIOMETRIC_STRONG hardware verification keys directly.
-    return res.status(410).json({ 
-        verified: false, 
-        error: 'DEPRECATED: Custom Face Verification is offline. ASTRA now relies exclusively on strictly-bound Native OS Biometrics (Face ID / Fingerprint).' 
-    });
+    // The mobile application now enforces OS-level BIOMETRIC_STRONG hardware verification keys directly.
+    return res.error('DEPRECATED: Custom Face Verification is offline. ASTRA now relies exclusively on strictly-bound Native OS Biometrics (Face ID / Fingerprint).', null, 410);
 };
 
 const chat = async (req, res) => {
@@ -66,7 +64,7 @@ const chat = async (req, res) => {
     try {
         const { message } = req.body;
         if (!message) {
-            return res.status(400).json({ error: 'Message is required' });
+            return res.error('Message is required', null, 400);
         }
 
         // ASTRA V3: Real-time status update
@@ -87,10 +85,10 @@ const chat = async (req, res) => {
             console.error('Failed to log AI conversation:', dbErr.message);
         }
 
-        res.json(response);
+        res.success(response);
     } catch (err) {
         console.error('Chatbot error:', err);
-        res.status(500).json({ error: 'Failed to communicate with AI Assistant' });
+        res.error('Failed to communicate with AI Assistant', null, 500);
     }
 };
 
@@ -98,7 +96,7 @@ const uploadFile = async (req, res) => {
     // Basic file upload handler (Assumes multer is configured on the route)
     try {
         if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
+            return res.error('No file uploaded', null, 400);
         }
         
         const form = new FormData();
@@ -115,13 +113,13 @@ const uploadFile = async (req, res) => {
         // Clean up local temp file
         fs.unlinkSync(req.file.path);
         
-        res.json(aiRes.data);
+        res.success(aiRes.data);
     } catch (err) {
         console.error('File Upload Proxy Error:', err);
         if (req.file && fs.existsSync(req.file.path)) {
              fs.unlinkSync(req.file.path);
         }
-        res.status(500).json({ error: 'Failed to upload and parse file to AI Engine' });
+        res.error('Failed to upload and parse file to AI Engine', null, 500);
     }
 };
 

@@ -31,6 +31,13 @@ module.exports = {
         console.log(`[ASTRA V3] Socket ${socket.id} left class_${classId}`);
       });
 
+      // 🛰️ LIVE TRACKING: Receive pings from students and broadcast to Admin Map
+      socket.on('LIVE_LOCATION_PING', (data) => {
+        const { SOCKET_EVENTS, formatSocketPayload } = require('../sockets/socketContracts');
+        // Standardize and broadcast
+        io.emit(SOCKET_EVENTS.LOCATION_UPDATE, formatSocketPayload(SOCKET_EVENTS.LOCATION_UPDATE, data));
+      });
+
       socket.on('disconnect', () => {
         const rooms = Array.from(socket.rooms);
         console.log(`[ASTRA V3] Socket ${socket.id} disconnected. Purging ${rooms.length} rooms.`);
@@ -47,14 +54,16 @@ module.exports = {
   },
   emitToUser: (userId, event, data) => {
     if (io) {
-      io.to(`user_${userId}`).emit(event, data);
+      const { SOCKET_EVENTS, formatSocketPayload } = require('../sockets/socketContracts');
+      io.to(`user_${userId}`).emit(event, formatSocketPayload(event, data));
     }
   },
   broadcastToClass: (classId, event, data) => {
     if (io) {
+      const { SOCKET_EVENTS, formatSocketPayload } = require('../sockets/socketContracts');
       // PRO-PERF: Using rooms instead of global broadcast with prefixes
-      io.to(`class_${classId}`).emit(event, data);
-      console.log(`[SOCKET] Room Broadcast (class_${classId}): ${event}`);
+      io.to(`class_${classId}`).emit(event, formatSocketPayload(event, data));
+      console.log(`[SOCKET CONTRACT] Room Broadcast (class_${classId}): ${event}`);
     }
   }
 };

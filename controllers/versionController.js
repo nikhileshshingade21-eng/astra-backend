@@ -15,7 +15,7 @@ const checkVersion = async (req, res) => {
         // Semantic version check (Simplified)
         const updateAvailable = currentVersion !== CURRENT_VERSION;
 
-        res.json({
+        res.success({
             latestVersion: CURRENT_VERSION,
             updateAvailable,
             forceUpdate: MANDATORY_UPDATE,
@@ -23,7 +23,7 @@ const checkVersion = async (req, res) => {
             releaseNotes: "Production Release v1.2.1: Final Stability Hardening (v7.0)"
         });
     } catch (err) {
-        res.status(500).json({ error: 'Version check failed' });
+        res.error('Version check failed', null, 500);
     }
 };
 

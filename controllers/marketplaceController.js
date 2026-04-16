@@ -25,10 +25,10 @@ const getItems = async (req, res) => {
             seller_id: row.seller_id
         }));
 
-        res.json({ items });
+        res.success(items);
     } catch (err) {
         console.error('Marketplace error:', err.message);
-        res.status(500).json({ error: 'Failed to fetch items' });
+        res.error('Failed to fetch items', null, 500);
     }
 };
 
@@ -39,14 +39,14 @@ const addItem = async (req, res) => {
     try {
         const { title, description, price, condition } = req.body;
         if (!title || price === undefined) {
-            return res.status(400).json({ error: 'Title and price are required' });
+            return res.error('Title and price are required', null, 400);
         }
         // Input validation
         if (typeof title !== 'string' || title.length > 200) {
-            return res.status(400).json({ error: 'Title must be under 200 characters' });
+            return res.error('Title must be under 200 characters', null, 400);
         }
         if (typeof price !== 'number' || price < 0 || price > 100000) {
-            return res.status(400).json({ error: 'Price must be between 0 and 100000' });
+            return res.error('Price must be between 0 and 100000', null, 400);
         }
 
         await queryAll(
@@ -55,10 +55,10 @@ const addItem = async (req, res) => {
             [req.user.id, title, description || null, price, condition || 'good']
         );
 
-        res.status(201).json({ message: 'Item listed successfully' });
+        res.success(null, 'Item listed successfully');
     } catch (err) {
         console.error('Marketplace error:', err.message);
-        res.status(500).json({ error: 'Failed to list item' });
+        res.error('Failed to list item', null, 500);
     }
 };
 
@@ -69,16 +69,16 @@ const markSold = async (req, res) => {
     try {
         const itemId = req.params.id;
         if (!itemId || isNaN(parseInt(itemId))) {
-            return res.status(400).json({ error: 'Valid item ID required' });
+            return res.error('Valid item ID required', null, 400);
         }
         await queryAll(
             `UPDATE marketplace_items SET status = 'sold' WHERE id = $1 AND seller_id = $2`,
             [itemId, req.user.id]
         );
-        res.json({ message: 'Item marked as sold' });
+        res.success(null, 'Item marked as sold');
     } catch (err) {
         console.error('Marketplace error:', err.message);
-        res.status(500).json({ error: 'Failed to update item' });
+        res.error('Failed to update item', null, 500);
     }
 };
 
@@ -89,16 +89,16 @@ const deleteItem = async (req, res) => {
     try {
         const itemId = req.params.id;
         if (!itemId || isNaN(parseInt(itemId))) {
-            return res.status(400).json({ error: 'Valid item ID required' });
+            return res.error('Valid item ID required', null, 400);
         }
         await queryAll(
             `DELETE FROM marketplace_items WHERE id = $1 AND seller_id = $2`,
             [itemId, req.user.id]
         );
-        res.json({ message: 'Item permanently deleted' });
+        res.success(null, 'Item permanently deleted');
     } catch (err) {
         console.error('Marketplace delete err:', err.message);
-        res.status(500).json({ error: 'Failed to delete item' });
+        res.error('Failed to delete item', null, 500);
     }
 };
 

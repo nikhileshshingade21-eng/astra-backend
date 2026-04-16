@@ -1,6 +1,8 @@
 const { getDb, queryAll, saveDb } = require('../database_module.js');
 const { reportThreat } = require('../services/threatService');
 const { getOrSetCache } = require('../services/cacheService');
+const { SOCKET_EVENTS } = require('../sockets/socketContracts');
+const { sendNotification } = require('../services/notificationEngine');
 const socketService = require('../services/socketService');
 const { queryAll: directQuery } = require('../database_module');
 
@@ -79,19 +81,19 @@ const mark = async (req, res) => {
         const signature = req.headers['x-astra-signature'];
 
         if (!timestamp || !nonce || !signature) {
-            return res.status(403).json({ error: 'PROTOCOL_VIOLATION', message: 'Missing protocol headers' });
+            return res.error('PROTOCOL_VIOLATION: Missing protocol headers', null, 403);
         }
 
         // 1. Time Window Check (5 mins)
         if (Math.abs(Date.now() - parseInt(timestamp)) > 5 * 60 * 1000) {
-            return res.status(403).json({ error: 'PROTOCOL_STALE', message: 'Request expired' });
+            return res.error('PROTOCOL_STALE: Request expired', null, 403);
         }
 
         // 2. Signature Verification — Uses JWT token as HMAC key (no shared secret)
         const crypto = require('crypto');
         const jwtToken = req.headers.authorization?.split(' ')[1];
         if (!jwtToken) {
-            return res.status(403).json({ error: 'PROTOCOL_VIOLATION', message: 'Missing auth token for signing' });
+            return res.error('PROTOCOL_VIOLATION: Missing auth token for signing', null, 403);
         }
         const signatureBase = `${timestamp}:${nonce}:${class_id || 'general'}:${req.user.id}:${req.user.device_id}`;
         const expectedSignature = crypto.createHmac('sha256', jwtToken)
@@ -99,14 +101,14 @@ const mark = async (req, res) => {
             .digest('hex');
 
         if (signature !== expectedSignature) {
-            return res.status(403).json({ error: 'PROTOCOL_TAMPERED', message: 'Invalid request signature' });
+            return res.error('PROTOCOL_TAMPERED: Invalid request signature', null, 403);
         }
 
         // 3. QR Protocol Verification (VULN-022 FIX)
         if (method === 'qr_scan') {
             const { qr_t } = req.body; // QR Timestamp from payload
             if (qr_t && Math.abs(Date.now() - parseInt(qr_t)) > 10 * 60 * 1000) {
-                return res.status(403).json({ error: 'QR_PROTOCOL_STALE', message: 'The QR code has expired. Please scan a fresh one.' });
+                return res.error('QR_PROTOCOL_STALE', { message: 'The QR code has expired. Please scan a fresh one.' }, 403);
             }
         }
 
@@ -120,7 +122,7 @@ const mark = async (req, res) => {
             const nonceKey = `nonce:${nonce}`;
             const exists = await redis.get(nonceKey);
             if (exists) {
-                return res.status(403).json({ error: 'PROTOCOL_REPLAY', message: 'Request signature already used' });
+                return res.error('PROTOCOL_REPLAY', { message: 'Request signature already used' }, 403);
             }
             await redis.set(nonceKey, '1', 'EX', 300); // Expire in 5 mins matching window
         }
@@ -129,7 +131,7 @@ const mark = async (req, res) => {
         console.log(`[📡 ATTENDANCE] REQ: User ${req.user.id} | Class: ${class_id || 'GENERAL'} | Method: ${method} | Nonce: ${nonce}`);
 
         if (gps_lat === undefined || gps_lat === null || gps_lng === undefined || gps_lng === null) {
-            return res.status(400).json({ error: 'GPS coordinates are required' });
+            return res.error('GPS coordinates are required', null, 400);
         }
 
         // 🛡️ AI THREAT DETECTION: GPS anomaly check
@@ -142,13 +144,12 @@ const mark = async (req, res) => {
             
             // If AI says block or lockdown — STOP the hacker here
             if (threat.action === 'block' || threat.action === 'lockdown') {
-                return res.status(403).json({
-                    error: '⛔ GPS SPOOFING DETECTED — BLOCKED',
+                return res.error('⛔ GPS SPOOFING DETECTED — BLOCKED', {
                     threat_score: threat.threat_score,
                     severity: threat.severity,
                     message: threat.reason,
                     action: 'Your account has been flagged. Admin has been notified.'
-                });
+                }, 403);
             }
         }
 
@@ -179,12 +180,11 @@ const mark = async (req, res) => {
         }
 
         if (!withinZone) {
-            return res.status(403).json({
-                error: 'GEOLOCATION FAILURE',
+            return res.error('GEOLOCATION FAILURE', {
                 distance_m: Math.round(nearestDistance),
                 zone: zoneName,
                 message: `ACCESS DENIED: You are ${Math.round(nearestDistance)}m away from ${zoneName || 'the institutional perimeter'}. Institutional protocol requires attendance within 50m of a registered campus zone.`
-            });
+            }, 403);
         }
 
         const todayDate = getLocalDate();
@@ -196,11 +196,10 @@ const mark = async (req, res) => {
         );
         if (calendarEvents.length > 0) {
             const event = calendarEvents[0];
-            return res.status(403).json({ 
-                error: 'CALENDAR_BLOCK', 
+            return res.error('CALENDAR_BLOCK', { 
                 message: `Attendance protocol is DISABLED today due to: ${event.event_name} (${event.type.toUpperCase()}).`,
                 event: event.event_name 
-            });
+            }, 403);
         }
         
         // 🛡️ Pre-emptive existence check (UX)
@@ -213,17 +212,15 @@ const mark = async (req, res) => {
                 console.log(`[🔄 IDEMPOTENCY] User ${req.user.id} re-submission for Class ${class_id}. returning 200 OK.`);
                 
                 // 🚀 FAIL-SAFETY (Final Layer): Log as a minor threat event for audit
-                threatService.reportThreat('duplicate_attendance_attempt', req.user.id, {
+                reportThreat('duplicate_attendance_attempt', req.user.id, {
                     class_id,
                     attempted_at: new Date().toISOString()
                 }, req.ip).catch(e => console.error('[FAIL-SAFE] Threat log err:', e.message));
 
-                return res.json({ 
-                    success: true, 
-                    message: "Attendance confirmed (Idempotent)", 
+                return res.success({ 
                     status: existing[0].status,
                     date: todayDate 
-                });
+                }, "Attendance confirmed (Idempotent)");
             }
         }
 
@@ -246,10 +243,9 @@ const mark = async (req, res) => {
                 const protocolOpenTime = new Date(classEndDate.getTime() - 10 * 60000 - GRACE_BUFFER_MS);
                 
                 if (process.env.NODE_ENV === 'production' && now < protocolOpenTime) {
-                    return res.status(403).json({
-                        error: 'TIME PROTOCOL BREACH',
+                    return res.error('TIME PROTOCOL BREACH', {
                         message: `Attendance marking for ${className} is only permitted in the FINAL 10 MINUTES of the session. Protocol opens at ${protocolOpenTime.toLocaleTimeString()}.`
-                    });
+                    }, 403);
                 }
 
                 if (now > classEndDate) {
@@ -264,18 +260,16 @@ const mark = async (req, res) => {
                 `INSERT INTO attendance (user_id, class_id, date, status, gps_lat, gps_lng, distance_m, method)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                  ON CONFLICT (user_id, class_id, date) DO NOTHING`,
-                [req.user.id, class_id || null, todayDate, status, gps_lat, gps_lng, Math.round(nearestDistance), method || 'biometric']
+                [req.user.id, class_id || null, todayDate, status, gps_lat || null, gps_lng || null, Math.round(nearestDistance), method || 'biometric']
             );
         } catch (err) {
             // CHAOS-FIX: Handle 'Unique Violation' race condition during Redis outage
             if (err.code === '23505') {
                 console.log(`[🛡️ RACE_RECOVERED] User ${req.user.id} DB Conflict handled as Success.`);
-                return res.json({ 
-                    success: true, 
-                    message: "Attendance confirmed (Race Condition Recovered)", 
+                return res.success({ 
                     status, 
                     date: todayDate 
-                });
+                }, "Attendance confirmed (Race Condition Recovered)");
             }
             throw err; // Re-throw other errors
         }
@@ -288,17 +282,23 @@ const mark = async (req, res) => {
         // REAL-TIME BROADCAST: Notify faculty/monitor (VULN-020 FIX)
         const userDetails = await queryAll('SELECT name, roll_number FROM users WHERE id = $1', [req.user.id]);
         if (class_id && userDetails.length > 0) {
-            console.log(`[🛰️ SOCKET] Broadcasting presence for ROLL: ${userDetails[0].roll_number}`);
-            socketService.broadcastToClass(class_id, 'ATTENDANCE_MARKED', {
+            console.log(`[🛰️ SOCKET & PUSH] Broadcasting presence for ROLL: ${userDetails[0].roll_number}`);
+            
+            // 1. Send WebSocket Update using exact Socket Engine Contract
+            socketService.broadcastToClass(class_id, SOCKET_EVENTS.ATTENDANCE_MARKED, {
                 ...userDetails[0],
                 id: req.user.id,
                 status,
                 marked_at: new Date().toISOString()
             });
+
+            // 2. Send Push Notification using Central Notification Engine
+            const classInfo = await queryAll('SELECT name FROM classes WHERE id = $1', [class_id]);
+            const classNamePush = classInfo.length > 0 ? classInfo[0].name : 'your class';
+            sendNotification(req.user.id, 'ATTENDANCE_SUCCESS', { class_name: classNamePush });
         }
 
-        res.json({
-            success: true,
+        res.success({
             status,
             distance_m: Math.round(nearestDistance),
             zone: zoneName,
@@ -307,7 +307,7 @@ const mark = async (req, res) => {
         });
     } catch (err) {
         console.error('Attendance mark error:', err);
-        res.status(500).json({ error: 'Failed to mark attendance' });
+        res.error('Failed to mark attendance', null, 500);
     }
 };
 
@@ -325,10 +325,10 @@ const getHistory = async (req, res) => {
             [req.user.id]
         );
 
-        res.json({ records: result });
+        res.success({ records: result });
     } catch (err) {
         console.error('History error:', err);
-        res.status(500).json({ error: 'Failed to fetch history' });
+        res.error('Failed to fetch history', null, 500);
     }
 };
 
@@ -341,7 +341,7 @@ const getLiveAttendance = async (req, res) => {
         // First find the class to get programme and section
         const clsRes = await queryAll('SELECT programme, section FROM classes WHERE id = $1', [classId]);
         if (clsRes.length === 0) {
-            return res.status(404).json({ error: 'Class not found' });
+            return res.error('Class not found', null, 404);
         }
         const { programme: prog, section: sec } = clsRes[0];
 
@@ -374,7 +374,7 @@ const getLiveAttendance = async (req, res) => {
         const totalEns = await queryAll(`SELECT COUNT(*) as count FROM users WHERE role = 'student' AND programme = $1 AND section = $2`, [prog, sec]);
         const totalEnrolled = totalEns.length ? parseInt(totalEns[0].count) : 0;
 
-        res.json({
+        res.success({
             classId,
             count,
             total_enrolled: totalEnrolled,
@@ -382,21 +382,21 @@ const getLiveAttendance = async (req, res) => {
         });
     } catch (err) {
         console.error('Live attendance error:', err);
-        res.status(500).json({ error: 'Failed to fetch live attendance' });
+        res.error('Failed to fetch live attendance', null, 500);
     }
 };
 
 const manualMark = async (req, res) => {
     try {
         if (req.user.role === 'student') {
-            return res.status(403).json({ error: 'Only faculty or admin can perform manual overrides' });
+            return res.error('Only faculty or admin can perform manual overrides', null, 403);
         }
 
         const { user_id, class_id, status } = req.body;
         // SEC-007 FIX: Validate status against allowed values
         const validStatuses = ['present', 'absent', 'late'];
         if (!user_id || !class_id || !status || !validStatuses.includes(status)) {
-            return res.status(400).json({ error: 'Valid User ID, Class ID, and Status (present/absent/late) are required' });
+            return res.error('Valid User ID, Class ID, and Status (present/absent/late) are required', null, 400);
         }
 
         const db = await getDb();
@@ -428,7 +428,7 @@ const manualMark = async (req, res) => {
                 const className = classInfo[0].name;
                 const statusLabel = status.toUpperCase();
                 
-                socketService.emitToUser(user_id, 'LIVE_NOTIFICATION', {
+                socketService.emitToUser(user_id, SOCKET_EVENTS.LIVE_NOTIFICATION, {
                     title: `✅ Attendance Verified`,
                     body: `Faculty marked you ${statusLabel} for ${className}.`,
                     type: 'attendance_update',
@@ -440,10 +440,10 @@ const manualMark = async (req, res) => {
             console.error('[BRIDGE_ERR] Live pulse failed:', socErr.message);
         }
 
-        res.json({ success: true, message: `Attendance for student updated to ${status}` });
+        res.success(null, `Attendance for student updated to ${status}`);
     } catch (err) {
         console.error('Manual mark error:', err);
-        res.status(500).json({ error: 'Failed to perform manual override' });
+        res.error('Failed to perform manual override', null, 500);
     }
 };
 
@@ -459,10 +459,10 @@ const getAttendanceStats = async (req, res) => {
 
         const percentage = total > 0 ? Math.round((attended / total) * 100) : 100;
 
-        res.json({ attended, total, percentage });
+        res.success({ attended, total, percentage });
     } catch (err) {
         console.error('Attendance stats error:', err);
-        res.status(500).json({ error: 'Failed to fetch attendance stats' });
+        res.error('Failed to fetch attendance stats', null, 500);
     }
 };
 

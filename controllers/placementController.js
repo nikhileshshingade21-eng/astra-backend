@@ -22,10 +22,10 @@ const getJobs = async (req, res) => {
             created_at: row.created_at
         }));
 
-        res.json({ jobs });
+        res.success(jobs);
     } catch (err) {
         console.error('Placement error:', err);
-        res.status(500).json({ error: 'Failed to fetch jobs' });
+        res.error('Failed to fetch jobs', null, 500);
     }
 };
 
@@ -55,16 +55,16 @@ const getRecommendations = async (req, res) => {
         }));
 
         if (availableJobs.length === 0) {
-            return res.json({ recommendations: [] });
+            return res.success([]);
         }
 
         // 3. Send to AI Engine to calculate match percentages
         const recommendations = await aiService.matchJobs(studentId, studentCgpa, availableJobs);
-        res.json({ recommendations });
+        res.success(recommendations);
 
     } catch (err) {
         console.error('Placement Recommendation error:', err);
-        res.status(500).json({ error: 'Failed to fetch AI recommendations' });
+        res.error('Failed to fetch AI recommendations', null, 500);
     }
 };
 
@@ -75,12 +75,12 @@ const addJob = async (req, res) => {
     try {
         // Simple authorization check
         if (req.user.role !== 'admin' && req.user.role !== 'faculty') {
-            return res.status(403).json({ error: 'Admin access required to post jobs' });
+            return res.error('Admin access required to post jobs', null, 403);
         }
 
         const { company, title, description, req_skills, min_cgpa } = req.body;
         if (!company || !title) {
-            return res.status(400).json({ error: 'Company and Title are required' });
+            return res.error('Company and Title are required', null, 400);
         }
 
         await queryAll(
@@ -89,10 +89,10 @@ const addJob = async (req, res) => {
             [company, title, description, req_skills || '', min_cgpa || 0]
         );
 
-        res.status(201).json({ message: 'Job posted successfully' });
+        res.success(null, 'Job posted successfully');
     } catch (err) {
         console.error('Placement error:', err);
-        res.status(500).json({ error: 'Failed to post job' });
+        res.error('Failed to post job', null, 500);
     }
 };
 

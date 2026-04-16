@@ -4,22 +4,22 @@ const applyLeave = async (req, res) => {
     try {
         const { start_date, end_date, reason } = req.body;
         if (!start_date || !end_date) {
-            return res.status(400).json({ error: 'Start date and end date are required' });
+            return res.error('Start date and end date are required', null, 400);
         }
 
         // MED-03 FIX: Validate reason length and sanitize
         if (reason && (typeof reason !== 'string' || reason.length > 500)) {
-            return res.status(400).json({ error: 'Reason must be under 500 characters' });
+            return res.error('Reason must be under 500 characters', null, 400);
         }
 
         // Validate date format
         const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
         if (!dateRegex.test(start_date) || !dateRegex.test(end_date)) {
-            return res.status(400).json({ error: 'Dates must be in YYYY-MM-DD format' });
+            return res.error('Dates must be in YYYY-MM-DD format', null, 400);
         }
 
         if (new Date(end_date) < new Date(start_date)) {
-            return res.status(400).json({ error: 'End date cannot be before start date' });
+            return res.error('End date cannot be before start date', null, 400);
         }
 
         await queryAll(
@@ -27,10 +27,10 @@ const applyLeave = async (req, res) => {
             [req.user.id, start_date, end_date, reason || null]
         );
 
-        res.json({ success: true, message: 'Leave request submitted' });
+        res.success(null, 'Leave request submitted successfully');
     } catch (err) {
         console.error('Apply leave error:', err.message);
-        res.status(500).json({ error: 'Failed to submit leave request' });
+        res.error('Failed to submit leave request', null, 500);
     }
 };
 
@@ -44,17 +44,17 @@ const getMyLeaves = async (req, res) => {
             [req.user.id]
         );
 
-        res.json({ leaves: result || [] });
+        res.success(result || []);
     } catch (err) {
         console.error('Get leaves error:', err.message);
-        res.status(500).json({ error: 'Failed to fetch leave requests' });
+        res.error('Failed to fetch leave requests', null, 500);
     }
 };
 
 const getPendingLeaves = async (req, res) => {
      try {
         if (req.user.role === 'student') {
-            return res.status(403).json({ error: 'Only faculty or admin can view pending leaves' });
+            return res.error('Only faculty or admin can view pending leaves', null, 403);
         }
 
         // MED-04 FIX: Faculty can only see leaves from their own section
@@ -79,24 +79,24 @@ const getPendingLeaves = async (req, res) => {
             );
         }
 
-        res.json({ leaves: result || [] });
+        res.success(result || []);
     } catch (err) {
         console.error('Get pending leaves error:', err.message);
-        res.status(500).json({ error: 'Failed to fetch pending leaves' });
+        res.error('Failed to fetch pending leaves', null, 500);
     }
 }
 
 const updateLeaveStatus = async (req, res) => {
     try {
         if (req.user.role === 'student') {
-            return res.status(403).json({ error: 'Only faculty or admin can update leave status' });
+            return res.error('Only faculty or admin can update leave status', null, 403);
         }
         
         const { id } = req.params;
         const { status } = req.body;
         
         if (!['approved', 'rejected'].includes(status)) {
-             return res.status(400).json({ error: 'Invalid status. Use approved or rejected.' });
+             return res.error('Invalid status. Use approved or rejected.', null, 400);
         }
 
         // MED-04 FIX: IDOR protection — faculty can only update leaves from their section
@@ -108,16 +108,16 @@ const updateLeaveStatus = async (req, res) => {
                 [id, req.user.section]
             );
             if (!leaveCheck || leaveCheck.length === 0) {
-                return res.status(403).json({ error: 'You can only manage leaves from your section' });
+                return res.error('You can only manage leaves from your section', null, 403);
             }
         }
 
         await queryAll(`UPDATE leave_requests SET status = $1 WHERE id = $2`, [status, id]);
 
-        res.json({ success: true, message: `Leave request ${status}` });
+        res.success(null, `Leave request ${status} successfully`);
     } catch (err) {
         console.error('Update leave error:', err.message);
-        res.status(500).json({ error: 'Failed to update leave status' });
+        res.error('Failed to update leave status', null, 500);
     }
 };
 

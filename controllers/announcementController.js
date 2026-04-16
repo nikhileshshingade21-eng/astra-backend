@@ -1,4 +1,7 @@
 const { queryAll } = require('../database_module');
+const { announcementSchema } = require('../contracts/apiContracts');
+const { getIo } = require('../services/socketService');
+const { SOCKET_EVENTS, formatSocketPayload } = require('../sockets/socketContracts');
 
 /**
  * Announcement Controller
@@ -10,12 +13,10 @@ exports.getAnnouncements = async (req, res) => {
     try {
         const { section } = req.query; // Optional filter
         
-        // If section is provided, get announcements for that section OR "All"
-        // Otherwise, get all announcements
         let sql = 'SELECT a.*, u.name as author FROM announcements a LEFT JOIN users u ON a.user_id = u.id ';
         const params = [];
 
-        if (section) {
+        if (section && section !== 'All') {
             sql += 'WHERE a.section = $1 OR a.section = \'All\' ';
             params.push(section);
         }
@@ -23,27 +24,29 @@ exports.getAnnouncements = async (req, res) => {
         sql += 'ORDER BY a.created_at DESC LIMIT 50';
 
         const announcements = await queryAll(sql, params);
-        res.json({ success: true, data: announcements });
+        res.success(announcements);
     } catch (error) {
         console.error('Error fetching announcements:', error);
-        res.status(500).json({ success: false, message: 'Server error fetching announcements' });
+        res.error('Server error fetching announcements', null, 500);
     }
 };
 
 // Create announcement (Teacher/Admin only)
 exports.createAnnouncement = async (req, res) => {
     try {
+        // Contract Validation
+        const validation = announcementSchema.safeParse(req);
+        if (!validation.success) {
+            return res.error(validation.error.errors[0].message, null, 400);
+        }
+
         const { title, content, category, section, image_url } = req.body;
         const userId = req.user.id;
         const userRole = req.user.role;
 
         // Security Check
         if (userRole !== 'faculty' && userRole !== 'admin') {
-            return res.status(403).json({ success: false, message: 'Only faculty can post announcements' });
-        }
-
-        if (!title || !content) {
-            return res.status(400).json({ success: false, message: 'Title and content are required' });
+            return res.error('Only faculty and admins can post announcements', null, 403);
         }
 
         const sql = `
@@ -55,9 +58,23 @@ exports.createAnnouncement = async (req, res) => {
 
         const [newAnnouncement] = await queryAll(sql, params);
 
-        res.status(201).json({ success: true, data: newAnnouncement });
+        // 🚀 Real-time Broadcast: Notify all connected students
+        try {
+            const io = getIo();
+            io.emit(SOCKET_EVENTS.LIVE_NOTIFICATION, formatSocketPayload(SOCKET_EVENTS.LIVE_NOTIFICATION, {
+                title: `New Announcement: ${title}`,
+                body: content.substring(0, 100) + (content.length > 100 ? '...' : ''),
+                type: 'announcement',
+                category: category || 'General'
+            }));
+        } catch (socketErr) {
+            console.error('[SOCKET] Failed to broadcast announcement:', socketErr.message);
+        }
+
+        res.success(newAnnouncement, 'Announcement created successfully');
     } catch (error) {
         console.error('Error creating announcement:', error);
-        res.status(500).json({ success: false, message: 'Server error creating announcement' });
+        res.error('Server error creating announcement', null, 500);
     }
 };
+

@@ -115,7 +115,7 @@ const getTodayClasses = async (req, res) => {
             console.log('No classes found for this criteria');
         }
 
-        res.json({ 
+        res.success({ 
             day: targetDayName, 
             date: targetDate, 
             classes,
@@ -123,19 +123,19 @@ const getTodayClasses = async (req, res) => {
         });
     } catch (err) {
         console.error('Timetable error:', err);
-        res.status(500).json({ error: 'Failed to fetch timetable' });
+        res.error('Failed to fetch timetable', null, 500);
     }
 };
 
 const addClass = async (req, res) => {
     try {
         if (req.user.role === 'student') {
-            return res.status(403).json({ error: 'Only faculty or admin can add classes' });
+            return res.error('Only faculty or admin can add classes', null, 403);
         }
 
         const { code, name, faculty_name, room, day, start_time, end_time, programme, section } = req.body;
         if (!code || !name || !day || !start_time || !end_time) {
-            return res.status(400).json({ error: 'Code, name, day, start_time, end_time are required' });
+            return res.error('Code, name, day, start_time, end_time are required', null, 400);
         }
 
         const db = await getDb();
@@ -145,10 +145,10 @@ const addClass = async (req, res) => {
             [code, name, faculty_name || null, room || null, day, start_time, end_time, programme || null, section || null]
         );
 
-        res.json({ success: true, message: 'Class added' });
+        res.success(null, 'Class added successfully');
     } catch (err) {
         console.error('Add class error:', err);
-        res.status(500).json({ error: 'Failed to add class' });
+        res.error('Failed to add class', null, 500);
     }
 };
 
@@ -174,9 +174,9 @@ const getDiagnostic = async (req, res) => {
             [targetDay, s, p]
         );
         
-        res.json({ day: targetDay, count: result.length, classes: result });
+        res.success({ day: targetDay, count: result.length, classes: result });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.error(err.message, null, 500);
     }
 };
 

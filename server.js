@@ -5,6 +5,8 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { getDb, queryAll } = require('./database_module.js');
 
+const normalizePayload = require('./adapters/normalizeMiddleware');
+
 const authRoutes = require('./routes/auth');
 const attendanceRoutes = require('./routes/attendance');
 const dashboardRoutes = require('./routes/dashboard');
@@ -34,6 +36,17 @@ app.use(express.static(path.join(__dirname, 'public')));
 // SEC-021: Strict Payload limits to prevent OOM restarts
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ limit: '2mb', extended: true }));
+
+// Integration Layer: Strict Global Response Wrapper
+const responseHandler = require('./middleware/responseHandler');
+app.use(responseHandler);
+
+// Integration Layer: Network Debugging
+const debugNetwork = require('./middleware/debugNetwork');
+app.use(debugNetwork);
+
+// Integration Layer: Payload Normalization (Exported for specific routes, not global)
+// app.use(normalizePayload);
 
 // VULN-014 FIX: Strict Security headers via helmet
 app.use(helmet({
@@ -86,20 +99,8 @@ app.use('/api/marketplace', require('./routes/marketplace'));
 app.use('/api/placements', require('./routes/placements'));
 app.use('/api/ai/approvals', require('./routes/aiApprovals'));
 app.use('/api/tenant', require('./routes/tenant'));
-app.get('/api/version', checkVersion); 
-
-// FCM Token Sync — Mobile clients push their Firebase token after login
-app.post('/api/user/fcm-token', protect, async (req, res) => {
-    try {
-        const { fcm_token } = req.body;
-        if (!fcm_token) return res.status(400).json({ error: 'fcm_token required' });
-        await queryAll('UPDATE users SET fcm_token = $1 WHERE id = $2', [fcm_token, req.user.id]);
-        res.json({ success: true });
-    } catch (e) {
-        console.error('[FCM] Token save error:', e.message);
-        res.status(500).json({ error: 'Failed to save token' });
-    }
-});
+app.use('/api/announcements', require('./routes/announcements'));
+app.use('/api', require('./routes/system'));
 app.get('/api/download/latest', (req, res) => {
     // Current release artifact
     res.redirect('https://github.com/nikhil/astra/releases/download/v1.2.1/app-release.apk');
@@ -117,7 +118,7 @@ app.get('/api/weather', async (req, res) => {
         const cacheKey = `${Math.round(lat * 10)}:${Math.round(lng * 10)}`;
         
         if (weatherCache.data && weatherCache.key === cacheKey && (now - weatherCache.timestamp) < WEATHER_CACHE_TTL) {
-            return res.json(weatherCache.data);
+            return res.success(weatherCache.data);
         }
 
         const axios = require('axios');
@@ -126,7 +127,7 @@ app.get('/api/weather', async (req, res) => {
         const current = response.data?.current;
 
         if (!current) {
-            return res.status(502).json({ error: 'Weather API returned empty data' });
+            return res.error('Weather API returned empty data', null, 502);
         }
 
         const WMO_CODES = {
@@ -147,15 +148,15 @@ app.get('/api/weather', async (req, res) => {
         };
 
         weatherCache = { data: result, timestamp: now, key: cacheKey };
-        res.json(result);
+        res.success(result);
     } catch (err) {
         console.error('[WEATHER] API Error:', err.message);
-        res.status(502).json({ error: 'Weather service temporarily unavailable' });
+        res.error('Weather service temporarily unavailable', null, 502);
     }
 });
 
 app.get('/api/health', (req, res) => {
-    res.json({ 
+    res.success({ 
         status: 'ok', 
         server: 'ASTRA Backend', 
         version: '1.0.6', 
@@ -176,12 +177,12 @@ app.get('/api/feedback', protect, getAllFeedback);
 app.get('/api/announcements', protect, getAnnouncements);
 app.post('/api/announcements', protect, createAnnouncement);
 
-app.use((req, res) => res.status(404).json({ error: 'Endpoint not found' }));
+app.use((req, res) => res.error('Endpoint not found', null, 404));
 
 app.use((err, req, res, next) => {
     console.error(`[ERROR] ${req.method} ${req.path}:`, err.message);
     // DEBUG: Temporarily return err.message in production to catch the registration crash
-    res.status(err.status || 500).json({ error: err.message || 'Internal error' });
+    res.error(err.message || 'Internal error', null, err.status || 500);
 });
 
 const { validateSchema } = require('./schema_validator');

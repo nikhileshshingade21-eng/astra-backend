@@ -1,160 +1,95 @@
 const { Resend } = require('resend');
-const nodemailer = require('nodemailer');
 
 /**
- * emailService
- * Handles sending automated alerts for feedback via Resend API.
- * This bypasses Railway SMTP port blocking.
+ * ASTRA Email Service
+ * ===================
+ * Handles automated reporting and security alerts using Resend.
  */
 
-const sendFeedbackEmail = async (userId, userRoll, type, message) => {
-    try {
-        // Try Institutional SMTP first
-        if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-            const transporter = nodemailer.createTransport({
-                service: 'gmail',
-                auth: {
-                    user: process.env.SMTP_USER,
-                    pass: process.env.SMTP_PASS
-                }
-            });
+let resend = null;
+const API_KEY = process.env.RESEND_API_KEY;
 
-            const mailOptions = {
-                from: `"ASTRA Feedback" <${process.env.SMTP_USER}>`,
-                to: process.env.SMTP_USER, // Send feedback to the admin's own email
-                subject: `[${type.toUpperCase()}] New ASTRA Feedback from ${userRoll}`,
-                html: `
-                    <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-                        <h2 style="color: #3b82f6;">ASTRA Beta Feedback Received</h2>
-                        <p><strong>User ID:</strong> ${userId}</p>
-                        <p><strong>Roll Number:</strong> ${userRoll}</p>
-                        <p><strong>Type:</strong> <span style="text-transform: capitalize; padding: 2px 6px; background: #eee; border-radius: 4px;">${type}</span></p>
-                        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-                        <p><strong>Message:</strong></p>
-                        <div style="background: #f9f9f9; padding: 15px; border-left: 4px solid #3b82f6; font-style: italic;">
-                            ${message}
-                        </div>
-                    </div>
-                `
-            };
+if (API_KEY) {
+    resend = new Resend(API_KEY);
+    console.log('[EMAIL] Resend service initialized.');
+} else {
+    console.warn('[EMAIL] RESEND_API_KEY missing. Email functionality will be disabled.');
+}
 
-            await transporter.sendMail(mailOptions);
-            console.log('[MAIL] Feedback sent via Institutional SMTP');
-            return true;
-        }
-
-        // Try Resend API
-        if (process.env.RESEND_API_KEY) {
-            const resend = new Resend(process.env.RESEND_API_KEY);
-            const { data, error } = await resend.emails.send({
-                from: 'ASTRA Beta <onboarding@resend.dev>',
-                to: 'nikhileshshingade21@gmail.com',
-                subject: `[${type.toUpperCase()}] New ASTRA Feedback from ${userRoll}`,
-                html: `
-                    <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-                        <h2 style="color: #3b82f6;">ASTRA Beta Feedback Received</h2>
-                        <p><strong>User ID:</strong> ${userId}</p>
-                        <p><strong>Roll Number:</strong> ${userRoll}</p>
-                        <p><strong>Type:</strong> <span style="text-transform: capitalize; padding: 2px 6px; background: #eee; border-radius: 4px;">${type}</span></p>
-                        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-                        <p><strong>Message:</strong></p>
-                        <div style="background: #f9f9f9; padding: 15px; border-left: 4px solid #3b82f6; font-style: italic;">
-                            ${message}
-                        </div>
-                    </div>
-                `
-            });
-
-            if (error) {
-                console.error('[MAIL ERROR] Resend failure:', error);
-                return false;
-            }
-
-            console.log('[MAIL] Feedback forwarded via Resend API:', data.id);
-            return true;
-        }
-
-        console.warn('[MAIL] Skipping feedback email: Neither SMTP nor RESEND_API_KEY is configured.');
-        return false;
-    } catch (err) {
-        console.error('[MAIL ERROR] Critical failure in email service:', err.message);
-        return false;
+/**
+ * Generic email sender
+ * @param {string} to Recipient email
+ * @param {string} subject Email subject
+ * @param {string} html HTML content
+ */
+const sendEmail = async (to, subject, html) => {
+    if (!resend) {
+        console.error('[EMAIL] Attempted to send email but Resend is not initialized.');
+        return { success: false, error: 'Email service uninitialized' };
     }
-};
 
-const sendResetEmail = async (userEmail, userName, resetToken) => {
     try {
-        // Institutional Preference: Use SMTP (Gmail/Outlook) for production-grade reliability
-        if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-            const transporter = nodemailer.createTransport({
-                service: 'gmail',
-                auth: {
-                    user: process.env.SMTP_USER,
-                    pass: process.env.SMTP_PASS
-                }
-            });
-
-            const mailOptions = {
-                from: `"ASTRA Security" <${process.env.SMTP_USER}>`,
-                to: userEmail,
-                subject: 'Account Recovery: Password Reset Protocol',
-                html: `
-                    <div style="font-family: Arial, sans-serif; padding: 30px; border: 1px solid #1e293b; border-radius: 16px; background: #020617; color: #fff;">
-                        <h2 style="color: #bf00ff;">ASTRA Security Link</h2>
-                        <p>Hello, ${userName}. A password reset has been requested for your identity.</p>
-                        <p>Provide the following secure code to finish the recovery protocol:</p>
-                        <div style="background: rgba(191,0,255,0.1); padding: 15px; border: 1px dashed #bf00ff; border-radius: 8px; font-size: 24px; font-weight: bold; letter-spacing: 4px; text-align: center; color: #bf00ff;">
-                            ${resetToken}
-                        </div>
-                        <p style="color: #94a3b8; font-size: 12px; margin-top: 30px;"> This code will expire in 15 minutes. If you did not request this, please secure your identity immediately. </p>
-                        <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 20px 0;" />
-                        <p style="font-size: 10px; color: #475569;"> ASTRA Institutional Sentinel | Secure OS Environment </p>
-                    </div>
-                `
-            };
-
-            await transporter.sendMail(mailOptions);
-            console.log('[MAIL] Reset token delivered via Institutional SMTP Gateway');
-            return true;
-        }
-
-        // Fallback: Using Resend API (Sandbox limitations apply)
-        if (!process.env.RESEND_API_KEY) {
-            console.warn('[MAIL] Skipping reset email: RESEND_API_KEY is not set.');
-            return false;
-        }
-
-        const resend = new Resend(process.env.RESEND_API_KEY);
         const { data, error } = await resend.emails.send({
-            from: 'ASTRA Security <security@resend.dev>',
-            to: userEmail,
-            subject: 'Account Recovery: Password Reset Protocol',
-            html: `
-                <div style="font-family: Arial, sans-serif; padding: 30px; border: 1px solid #1e293b; border-radius: 16px; background: #020617; color: #fff;">
-                    <h2 style="color: #bf00ff;">ASTRA Security Link</h2>
-                    <p>Hello, ${userName}. A password reset has been requested for your identity.</p>
-                    <p>Provide the following secure code to finish the recovery protocol:</p>
-                    <div style="background: rgba(191,0,255,0.1); padding: 15px; border: 1px dashed #bf00ff; border-radius: 8px; font-size: 24px; font-weight: bold; letter-spacing: 4px; text-align: center; color: #bf00ff;">
-                        ${resetToken}
-                    </div>
-                </div>
-            `
+            from: 'ASTRA <notifs@astra.college>', // Fallback to verified domain in production
+            to,
+            subject,
+            html,
         });
 
         if (error) {
-            console.error('[MAIL ERROR] Resend failure:', error);
-            return false;
+            console.error('[EMAIL ERROR]', error);
+            return { success: false, error };
         }
 
-        console.log('[MAIL] Reset token delivered via Resend API:', data.id);
-        return true;
+        return { success: true, data };
     } catch (err) {
-        console.error('[MAIL ERROR] Reset failure:', err.message);
-        return false;
+        console.error('[EMAIL CRITICAL]', err);
+        return { success: false, error: err.message };
     }
 };
 
+/**
+ * Attendance Report Template
+ * @param {string} adminEmail 
+ * @param {object} stats { todayCount, yield }
+ */
+const sendAttendanceReport = async (adminEmail, stats) => {
+    const html = `
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; background-color: #f4f7ff; color: #1e293b;">
+            <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);">
+                <div style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); padding: 30px; text-align: center;">
+                    <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 1px;">ASTRA INTELLIGENCE</h1>
+                    <p style="color: rgba(255,255,255,0.8); margin-top: 5px;">Daily Attendance Digest</p>
+                </div>
+                <div style="padding: 40px;">
+                    <p style="font-size: 16px; line-height: 1.6;">Hello Administrator,</p>
+                    <p style="font-size: 16px; line-height: 1.6;">The automated system has aggregated today's attendance data for <b>${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</b>.</p>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 30px 0;">
+                        <div style="background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; text-align: center;">
+                            <span style="display: block; font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600;">Present Today</span>
+                            <span style="display: block; font-size: 32px; font-weight: 700; color: #6366f1;">${stats.todayCount}</span>
+                        </div>
+                        <div style="background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; text-align: center;">
+                            <span style="display: block; font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600;">Verification Yield</span>
+                            <span style="display: block; font-size: 32px; font-weight: 700; color: #22c55e;">${stats.yield}%</span>
+                        </div>
+                    </div>
+
+                    <div style="text-align: center; margin-top: 40px;">
+                        <a href="https://astra.college/admin/dashboard" style="background: #6366f1; color: #ffffff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">View Live Dashboard</a>
+                    </div>
+                </div>
+                <div style="background: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #e2e8f0;">
+                    <p style="margin: 0; font-size: 12px; color: #94a3b8;">&copy; 2026 ASTRA Integration Engine. All rights reserved.</p>
+                </div>
+            </div>
+        </div>
+    `;
+    return sendEmail(adminEmail, `ASTRA: Attendance Report - ${new Date().toLocaleDateString()}`, html);
+};
+
 module.exports = {
-    sendFeedbackEmail,
-    sendResetEmail
+    sendEmail,
+    sendAttendanceReport
 };

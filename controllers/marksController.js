@@ -3,12 +3,12 @@ const { getDb, queryAll, saveDb } = require('../database_module.js');
 const addMark = async (req, res) => {
     try {
         if (req.user.role === 'student') {
-            return res.status(403).json({ error: 'Only faculty or admin can add marks' });
+            return res.error('Only faculty or admin can add marks', null, 403);
         }
 
         const { user_id, class_id, exam_type, marks_obtained, total_marks } = req.body;
         if (!user_id || !exam_type || marks_obtained === undefined || total_marks === undefined) {
-            return res.status(400).json({ error: 'Missing required fields' });
+            return res.error('Missing required fields', null, 400);
         }
 
         const db = await getDb();
@@ -17,10 +17,10 @@ const addMark = async (req, res) => {
             [user_id, class_id || null, exam_type, marks_obtained, total_marks]
         );
 
-        res.json({ success: true, message: 'Marks added successfully' });
+        res.success(null, 'Marks added successfully');
     } catch (err) {
         console.error('Add mark error:', err);
-        res.status(500).json({ error: 'Failed to add marks' });
+        res.error('Failed to add marks', null, 500);
     }
 };
 
@@ -36,17 +36,17 @@ const getMyMarks = async (req, res) => {
             [req.user.id]
         );
 
-        res.json({ marks: result });
+        res.success(result);
     } catch (err) {
         console.error('Get marks error:', err);
-        res.status(500).json({ error: 'Failed to fetch marks' });
+        res.error('Failed to fetch marks', null, 500);
     }
 };
 
 const getClassMarks = async (req, res) => {
     try {
         if (req.user.role === 'student') {
-            return res.status(403).json({ error: 'Only faculty or admin can view class marks' });
+            return res.error('Only faculty or admin can view class marks', null, 403);
         }
         
         const { classId } = req.params;
@@ -60,10 +60,10 @@ const getClassMarks = async (req, res) => {
             [classId]
         );
 
-        res.json({ class_id: classId, marks: result });
+        res.success({ class_id: classId, marks: result });
     } catch (err) {
         console.error('Get class marks error:', err);
-        res.status(500).json({ error: 'Failed to fetch class marks' });
+        res.error('Failed to fetch class marks', null, 500);
     }
 }
 

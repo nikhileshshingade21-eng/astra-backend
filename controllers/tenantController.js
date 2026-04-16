@@ -13,22 +13,19 @@ exports.getTenantConfig = async (req, res) => {
         
         if (!config) {
             // Default fallback if no config exists
-            return res.json({
-                success: true,
-                data: {
-                    institution_name: 'Astra Institute',
-                    primary_color: '#bf00ff',
-                    secondary_color: '#00f2ff',
-                    logo_url: '/assets/logo.png',
-                    welcome_msg: 'Welcome to the Astra Secure Session'
-                }
+            return res.success({
+                institution_name: 'Astra Institute',
+                primary_color: '#bf00ff',
+                secondary_color: '#00f2ff',
+                logo_url: '/assets/logo.png',
+                welcome_msg: 'Welcome to the Astra Secure Session'
             });
         }
         
-        res.json({ success: true, data: config });
+        res.success(config);
     } catch (error) {
         console.error('Error fetching tenant config:', error);
-        res.status(500).json({ success: false, message: 'Server error fetching tenant config' });
+        res.error('Server error fetching tenant config', null, 500);
     }
 };
 
@@ -38,7 +35,7 @@ exports.updateTenantConfig = async (req, res) => {
         const { institution_name, primary_color, secondary_color, logo_url, welcome_msg } = req.body;
         
         if (req.user.role !== 'admin') {
-            return res.status(403).json({ success: false, message: 'Admin access required' });
+            return res.error('Admin access required', null, 403);
         }
 
         const sql = `
@@ -49,9 +46,9 @@ exports.updateTenantConfig = async (req, res) => {
         const params = [institution_name, primary_color, secondary_color, logo_url, welcome_msg];
 
         const [newConfig] = await queryAll(sql, params);
-        res.status(201).json({ success: true, data: newConfig });
+        res.success(newConfig, 'Tenant configuration updated');
     } catch (error) {
         console.error('Error updating tenant config:', error);
-        res.status(500).json({ success: false, message: 'Server error updating tenant config' });
+        res.error('Server error updating tenant config', null, 500);
     }
 };

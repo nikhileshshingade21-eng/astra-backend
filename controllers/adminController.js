@@ -3,32 +3,40 @@ const path = require('path');
 const crypto = require('crypto');
 const { getDb, queryAll } = require('../database_module.js');
 const { encryptBuffer } = require('../utils/encryption');
+const EmailService = require('../services/emailService');
+const { addZoneSchema, reportRequestSchema } = require('../contracts/apiContracts');
 
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+// 📐 Haversine Formula (Fixed) - km to meters conversion
+function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c * 1000; // Result in meters
 }
 
 const addZone = async (req, res) => {
     try {
+        // Contract Validation
+        const validation = addZoneSchema.safeParse(req);
+        if (!validation.success) {
+            return res.error(validation.error.errors[0].message, null, 400);
+        }
+
         const { name, lat, lng, radius_m } = req.body;
-        if (!name || lat === undefined || lat === null || lng === undefined || lng === null) {
-            return res.status(400).json({ error: 'Name, lat, lng are required' });
-        }
-        if (typeof lat !== 'number' || typeof lng !== 'number' || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-            return res.status(400).json({ error: 'Invalid coordinates' });
-        }
-        if (typeof name !== 'string' || name.length > 100) {
-            return res.status(400).json({ error: 'Zone name must be under 100 characters' });
-        }
 
         await queryAll(
             'INSERT INTO campus_zones (name, lat, lng, radius_m) VALUES ($1, $2, $3, $4)',
             [name, lat, lng, radius_m || 100]
         );
 
-        res.json({ success: true, message: `Campus zone "${name}" added` });
+        res.success(null, `Campus zone "${name}" added successfully`);
     } catch (err) {
         console.error('Add zone error:', err.message);
-        res.status(500).json({ error: 'Failed to add zone' });
+        res.error('Failed to add zone', null, 500);
     }
 };
 
@@ -49,10 +57,10 @@ const listZones = async (req, res) => {
                 }
             }
         }
-        res.json({ zones });
+        res.success(zones);
     } catch (err) {
         console.error('List zones error:', err);
-        res.status(500).json({ error: 'Failed to fetch zones' });
+        res.error('Failed to fetch zones', null, 500);
     }
 };
 
@@ -61,34 +69,34 @@ const toggleZone = async (req, res) => {
         const { id } = req.params;
         const { active } = req.body;
         if (id === undefined || active === undefined) {
-            return res.status(400).json({ error: 'ID and active status are required' });
+            return res.error('ID and active status are required', null, 400);
         }
         await queryAll('UPDATE campus_zones SET active = $1 WHERE id = $2', [active, id]);
-        res.json({ success: true, message: `Zone ${id} status updated to ${active}` });
+        res.success(null, `Zone ${id} status updated to ${active}`);
     } catch (err) {
         console.error('Toggle zone error:', err.message);
-        res.status(500).json({ error: 'Failed to update zone status' });
+        res.error('Failed to update zone status', null, 500);
     }
 };
 
 const deleteZone = async (req, res) => {
     try {
         const { id } = req.params;
-        if (!id) return res.status(400).json({ error: 'ID is required' });
+        if (!id) return res.error('ID is required', null, 400);
         await queryAll('DELETE FROM campus_zones WHERE id = $1', [id]);
-        res.json({ success: true, message: `Zone ${id} deleted` });
+        res.success(null, `Zone ${id} deleted successfully`);
     } catch (err) {
         console.error('Delete zone error:', err.message);
-        res.status(500).json({ error: 'Failed to delete zone' });
+        res.error('Failed to delete zone', null, 500);
     }
 };
 
 const listUsers = async (req, res) => {
     try {
         const result = await queryAll('SELECT id, roll_number, name, email, phone, programme, section, role, created_at FROM users ORDER BY created_at DESC');
-        res.json({ users: result || [] });
+        res.success(result || []);
     } catch (err) {
-        res.status(500).json({ error: 'Failed to fetch users' });
+        res.error('Failed to fetch users', null, 500);
     }
 };
 
@@ -100,7 +108,7 @@ const getStats = async (req, res) => {
         const todayCountRes = await queryAll("SELECT COUNT(*) as count FROM attendance WHERE date = CURRENT_DATE::text");
         const zoneCountRes = await queryAll('SELECT COUNT(*) as count FROM campus_zones');
 
-        res.json({ 
+        res.success({ 
             total_users: parseInt(userCountRes[0]?.count || 0), 
             total_classes: parseInt(classCountRes[0]?.count || 0), 
             total_attendance: parseInt(attendanceCountRes[0]?.count || 0), 
@@ -108,21 +116,17 @@ const getStats = async (req, res) => {
             total_zones: parseInt(zoneCountRes[0]?.count || 0) 
         });
     } catch (err) {
-        res.status(500).json({ error: 'Failed to fetch stats' });
+        res.error('Failed to fetch stats', null, 500);
     }
 };
 
 const getTracker = async (req, res) => {
     try {
         const { rollNumber } = req.params;
-        if (!rollNumber || typeof rollNumber !== 'string') {
-            return res.status(400).json({ error: 'Roll number is required' });
-        }
+        if (!rollNumber) return res.error('Roll number is required', null, 400);
 
         const userRes = await queryAll('SELECT id, name, roll_number FROM users WHERE roll_number = $1', [rollNumber.toUpperCase()]);
-        if (userRes.length === 0) {
-            return res.status(404).json({ error: 'Student not found' });
-        }
+        if (userRes.length === 0) return res.error('Student not found', null, 404);
 
         const user = userRes[0];
 
@@ -150,10 +154,10 @@ const getTracker = async (req, res) => {
         const present = parseInt(presentStats[0]?.count || 0);
         const pct = total > 0 ? Math.round((present / total) * 100) : 100;
 
-        res.json({ user, trail, attendance_pct: `${pct}%` });
+        res.success({ user, trail, attendance_pct: `${pct}%` });
     } catch (err) {
         console.error('Tracker error:', err.message);
-        res.status(500).json({ error: 'Failed to fetch tracker data' });
+        res.error('Failed to fetch tracker data', null, 500);
     }
 };
 
@@ -161,7 +165,7 @@ const pingClass = async (req, res) => {
     try {
         const { class_id } = req.body;
         if (!class_id) {
-            return res.status(400).json({ error: 'class_id is required' });
+            return res.error('class_id is required', null, 400);
         }
 
         const logsRes = await queryAll(`
@@ -190,30 +194,27 @@ const pingClass = async (req, res) => {
 
         const pending = Math.max(0, 45 - (responded + flagged));
 
-        res.json({
-            success: true,
-            results: {
-                responded,
-                noResponse: pending,
-                flagged,
-                students
-            }
+        res.success({
+            responded,
+            noResponse: pending,
+            flagged,
+            students
         });
     } catch (err) {
         console.error('Ping error:', err.message);
-        res.status(500).json({ error: 'Failed to broadcast ping' });
+        res.error('Failed to broadcast ping', null, 500);
     }
 };
 
 const uploadStudentData = async (req, res) => {
     try {
         if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
+            return res.error('No file uploaded', null, 400);
         }
 
         // File size limit: 10MB
         if (req.file.size > 10 * 1024 * 1024) {
-            return res.status(400).json({ error: 'File too large (max 10MB)' });
+            return res.error('File too large (max 10MB)', null, 400);
         }
 
         const adminId = req.user.id;
@@ -242,14 +243,10 @@ const uploadStudentData = async (req, res) => {
             [adminId, 'Secure File Upload', `Encrypted file stored. Size: ${size} bytes`, 'info']
         );
 
-        res.json({
-            success: true,
-            message: 'File uploaded and encrypted successfully',
-            file: { id: randomName, originalName, size }
-        });
+        res.success({ id: randomName, originalName, size }, 'File uploaded and encrypted successfully');
     } catch (err) {
         console.error('Upload error:', err.message);
-        res.status(500).json({ error: 'Failed to process and encrypt file' });
+        res.error('Failed to process and encrypt file', null, 500);
     }
 };
 
@@ -288,13 +285,13 @@ const getThreatLogs = async (req, res) => {
         const medium = logs.filter(l => l.severity === 'medium').length;
         const low = logs.filter(l => l.severity === 'low').length;
 
-        res.json({
+        res.success({
             summary: { total: logs.length, critical, high, medium, low },
             logs
         });
     } catch (err) {
         console.error('Threat logs error:', err.message);
-        res.status(500).json({ error: 'Failed to fetch threat logs' });
+        res.error('Failed to fetch threat logs', null, 500);
     }
 };
 
@@ -322,17 +319,17 @@ const getBannedUsers = async (req, res) => {
             status: row.unbanned ? 'unbanned' : (row.is_permanent ? 'permanent' : 'active')
         }));
 
-        res.json({ bans });
+        res.success(bans);
     } catch (err) {
         console.error('Banned users error:', err.message);
-        res.status(500).json({ error: 'Failed to fetch banned users' });
+        res.error('Failed to fetch banned users', null, 500);
     }
 };
 
 const unbanUser = async (req, res) => {
     try {
         const { ban_id } = req.body;
-        if (!ban_id) return res.status(400).json({ error: 'Ban ID is required' });
+        if (!ban_id) return res.error('Ban ID is required', null, 400);
 
         await queryAll('UPDATE banned_users SET unbanned = 1 WHERE id = $1', [ban_id]);
 
@@ -345,10 +342,10 @@ const unbanUser = async (req, res) => {
             );
         }
 
-        res.json({ success: true, message: 'User unbanned successfully' });
+        res.success(null, 'User unbanned successfully');
     } catch (err) {
         console.error('Unban error:', err.message);
-        res.status(500).json({ error: 'Failed to unban user' });
+        res.error('Failed to unban user', null, 500);
     }
 };
 
@@ -395,31 +392,31 @@ const getAiAnalytics = async (req, res) => {
             time: row.created_at
         }));
 
-        res.json({
+        res.success({
             sentiments,
             topics,
             flagged_conversations: flagged
         });
     } catch (err) {
         console.error('AI Analytics Error:', err.message);
-        res.status(500).json({ error: 'Failed to fetch institutional AI insights' });
+        res.error('Failed to fetch institutional AI insights', null, 500);
     }
 };
 
 const resetDevice = async (req, res) => {
     try {
         const { rollNumber } = req.body;
-        if (!rollNumber) return res.status(400).json({ error: 'Roll number is required for device reset' });
+        if (!rollNumber) return res.error('Roll number is required for device reset', null, 400);
 
         const result = await queryAll('UPDATE users SET device_id = NULL, is_registered = FALSE WHERE roll_number = $1', [rollNumber.toUpperCase()]);
         
         // Log the reset for audit
         console.log(`[🛡️ ADMIN] Device binding RESET for student ${rollNumber} by ${req.user.name}`);
         
-        res.json({ success: true, message: `Device binding for ${rollNumber} has been cleared. Student must re-register on their new device.` });
+        res.success(null, `Device binding for ${rollNumber} has been cleared. Student must re-register on their new device.`);
     } catch (err) {
         console.error('Reset device error:', err.message);
-        res.status(500).json({ error: 'Failed to reset device binding' });
+        res.error('Failed to reset device binding', null, 500);
     }
 };
 
@@ -431,7 +428,7 @@ const sendNotification = async (req, res) => {
     try {
         const { targetType, targetId, title, message, type } = req.body;
         if (!targetType || !title || !message) {
-            return res.status(400).json({ error: 'targetType, title, and message are critically required' });
+            return res.error('targetType, title, and message are critically required', null, 400);
         }
 
         const admin = require('../services/firebaseService');
@@ -452,7 +449,7 @@ const sendNotification = async (req, res) => {
         }
 
         if (tokens.length === 0) {
-            return res.status(404).json({ error: 'No valid FCM targets acquired' });
+            return res.error('No valid FCM targets acquired', null, 404);
         }
 
         // FIREBASE MULTICAST (Data Only for Notifee wakeups)
@@ -472,10 +469,10 @@ const sendNotification = async (req, res) => {
             await AIEngine.logNotificationHistory(userIds[i], type || 'admin_broadcast', title, message, state);
         }
 
-        res.json({ success: true, deliveries: fcmRes.successCount, failures: fcmRes.failureCount });
+        res.success({ deliveries: fcmRes.successCount, failures: fcmRes.failureCount });
     } catch (err) {
         console.error('Send Notification Error:', err.message);
-        res.status(500).json({ error: 'Critical failure pushing notification' });
+        res.error('Critical failure pushing notification', null, 500);
     }
 };
 
@@ -492,8 +489,7 @@ const getNotificationStats = async (req, res) => {
             LIMIT 50
         `);
 
-        res.json({
-            success: true,
+        res.success({
             metrics: {
                 sent: parseInt(totalSent[0]?.count || 0),
                 failed: parseInt(totalFailed[0]?.count || 0),
@@ -502,7 +498,7 @@ const getNotificationStats = async (req, res) => {
             history: recentHistory || []
         });
     } catch (err) {
-        res.status(500).json({ error: 'Error pulling telemetry' });
+        res.error('Error pulling telemetry', null, 500);
     }
 };
 
@@ -524,31 +520,41 @@ const getRealtimeAttendance = async (req, res) => {
             lng: parseFloat(row.lng),
             time: row.marked_at
         }));
-        res.json({ data: mapData });
+        res.success(mapData);
     } catch (err) {
         console.error('Realtime attendance error:', err.message);
-        res.status(500).json({ error: 'Failed to fetch realtime attendance' });
+        res.error('Failed to fetch realtime attendance', null, 500);
     }
 };
 
 const generateReport = async (req, res) => {
     try {
-        // Here we could use Nodemailer or Resend for emails
-        const todayCountRes = await queryAll("SELECT COUNT(*) as count FROM attendance WHERE date = CURRENT_DATE::text");
-        const count = todayCountRes[0]?.count || 0;
+        // Safe validation (non-blocking for now if missing req.body)
+        const validation = reportRequestSchema.safeParse(req);
         
-        console.log(`[REPORTS] Generated attendance report. Total marked today: ${count}`);
-        console.log(`[REPORTS] Report successfully dispatched to administrator email domain.`);
+        const todayCountRes = await queryAll("SELECT COUNT(*) as count FROM attendance WHERE date = CURRENT_DATE::text");
+        const count = parseInt(todayCountRes[0]?.count || 0);
+
+        // Security Yield Calculation
+        const flaggedRes = await queryAll("SELECT COUNT(*) as count FROM attendance WHERE date = CURRENT_DATE::text AND status = 'flagged'");
+        const flagged = parseInt(flaggedRes[0]?.count || 0);
+        const yieldPct = count > 0 ? Math.round(((count - flagged) / count) * 100) : 100;
+
+        // Dispatched directly to admin's email using the new EmailService
+        await EmailService.sendAttendanceReport(req.user.email, {
+            todayCount: count,
+            yield: yieldPct
+        });
 
         await queryAll(
             `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
-            [req.user.id, 'Report Dispatched', `Today's attendance report (${count} records) has been emailed.`, 'success']
+            [req.user.id, 'Report Dispatched', `Today's attendance report (${count} records) has been emailed to ${req.user.email}.`, 'success']
         );
 
-        res.json({ success: true, message: 'Report generated and dispatched to your email.' });
+        res.success({ message: 'Report generated and dispatched to your email.' });
     } catch (err) {
         console.error('Generate report error:', err.message);
-        res.status(500).json({ error: 'Failed to generate report' });
+        res.error('Failed to generate report');
     }
 };
 

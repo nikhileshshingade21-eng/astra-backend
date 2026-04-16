@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const verify = async (req, res) => {
     try {
         const { roll_number } = req.body;
-        if (!roll_number) return res.status(400).json({ error: 'Roll number required' });
+        if (!roll_number) return res.error('Roll number required', null, 400);
 
         const cleanRoll = roll_number.trim().toUpperCase();
         const db = await getDb();
@@ -22,13 +22,13 @@ const verify = async (req, res) => {
         const exists = existing.length > 0;
         const isVerified = verified.length > 0;
 
-        res.json({ 
+        res.success({ 
             received: true, 
             valid: isVerified, // Student must be in verified_students to be "valid" for registration
             registered: exists // If they are already in users, they are "registered"
         });
     } catch (err) {
-        res.status(500).json({ error: 'Verification failed' });
+        res.error('Verification failed', null, 500);
     }
 };
 
@@ -40,21 +40,21 @@ const register = async (req, res) => {
         } = req.body;
 
         if (!roll_number || !name || !password || !device_id) {
-            return res.status(400).json({ error: 'Roll number, name, and password are required' });
+            return res.error('Roll number, name, and password are required', null, 400);
         }
 
         // VULN-009 FIX: Input validation
         if (typeof roll_number !== 'string' || roll_number.length > 20) {
-            return res.status(400).json({ error: 'Invalid roll number format' });
+            return res.error('Invalid roll number format', null, 400);
         }
         if (typeof name !== 'string' || name.length < 2 || name.length > 100) {
-            return res.status(400).json({ error: 'Name must be 2-100 characters' });
+            return res.error('Name must be 2-100 characters', null, 400);
         }
         if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            return res.status(400).json({ error: 'Invalid email format' });
+            return res.error('Invalid email format', null, 400);
         }
         if (phone && !/^\+?[\d\s-]{7,15}$/.test(phone)) {
-            return res.status(400).json({ error: 'Invalid phone number format' });
+            return res.error('Invalid phone number format', null, 400);
         }
 
         const cleanRoll = roll_number.trim().toUpperCase();
@@ -63,7 +63,7 @@ const register = async (req, res) => {
         // CHECK INSTITUTIONAL REGISTRY (Phase 4)
         const verifiedList = await queryAll('SELECT id FROM verified_students WHERE roll_number = $1', [cleanRoll]);
         if (verifiedList.length === 0) {
-            return res.status(403).json({ error: 'Identity not found in institutional registry. Please contact admin.' });
+            return res.error('Identity not found in institutional registry. Please contact admin.', null, 403);
         }
 
         // Check if roll number already exists
@@ -95,7 +95,7 @@ const register = async (req, res) => {
                 );
                 userId = oldId;
             } else {
-                return res.status(409).json({ error: 'Roll number already registered and claimed.' });
+                return res.error('Roll number already registered and claimed.', null, 409);
             }
         } else {
             // New user registration
@@ -126,14 +126,13 @@ const register = async (req, res) => {
         // VULN-007 FIX: Reduced token expiry from 30d to 2h
         const token = jwt.sign({ userId: userId, role: userRole }, JWT_SECRET, { expiresIn: '2h' });
 
-        res.json({
-            success: true,
+        res.success({
             token,
             user: { id: userId, roll_number: cleanRoll, name, email, phone, programme, section, role: userRole, biometric_enrolled: !!biometric_enrolled, face_enrolled: !!face_enrolled }
-        });
+        }, 'Registration successful');
     } catch (err) {
         console.error('Register error:', err.message);
-        res.status(500).json({ error: 'Registration failed. Please try again.' });
+        res.error('Registration failed. Please try again.', null, 500);
     }
 };
 
@@ -143,15 +142,15 @@ const login = async (req, res) => {
 
         // Institutional Validation Gate: Distinguish between Biometric and Manual flows
         if (!roll_number) {
-            return res.status(401).json({ error: 'Roll number is required' });
+            return res.error('Roll number is required', null, 401);
         }
 
         if (!biometric_auth && !password) {
-            return res.status(401).json({ error: 'Roll number and password are required' });
+            return res.error('Roll number and password are required', null, 401);
         }
 
         if (!device_id) {
-            return res.status(401).json({ error: 'Device binding failed. Please retry.' });
+            return res.error('Device binding failed. Please retry.', null, 401);
         }
 
         const cleanRoll = roll_number.trim().toUpperCase();
@@ -162,19 +161,19 @@ const login = async (req, res) => {
         );
 
         if (result.length === 0) {
-            return res.status(401).json({ error: 'ACCOUNT_NOT_FOUND' });
+            return res.error('ACCOUNT_NOT_FOUND', null, 401);
         }
 
         const user = result[0];
 
         // VULN-015 FIX: Prevent login for unregistered/unclaimed accounts
         if (!user.is_registered) {
-            return res.status(403).json({ error: 'ACCOUNT_NOT_REGISTERED', message: 'Account not registered. Please complete registration first.' });
+            return res.error('ACCOUNT_NOT_REGISTERED', { message: 'Account not registered. Please complete registration first.' }, 403);
         }
 
         // VULN-016 FIX: Strict Device Binding Check
         if (user.device_id && user.device_id !== device_id) {
-            return res.status(403).json({ error: 'DEVICE_MISMATCH', message: 'This account is bound to another device. Contact Admin for reset.' });
+            return res.error('DEVICE_MISMATCH', { message: 'This account is bound to another device. Contact Admin for reset.' }, 403);
         }
 
         // If no device bound yet, bind it now (in-case migrated from legacy)
@@ -195,7 +194,7 @@ const login = async (req, res) => {
         else {
             const match = await bcrypt.compare(password, user.password_hash);
             if (!match) {
-                return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'The password provided is incorrect.' });
+                return res.error('INVALID_CREDENTIALS', { message: 'The password provided is incorrect.' }, 401);
             }
             console.log(`[🛡️ AUTH] Password Fallback: ${user.roll_number}`);
         }
@@ -209,15 +208,15 @@ const login = async (req, res) => {
         );
 
         const { password_hash, ...safeUser } = user;
-        res.json({ success: true, token, user: safeUser });
+        res.success({ token, user: safeUser }, 'Login successful');
     } catch (err) {
         console.error('Login error:', err.message);
-        res.status(500).json({ error: 'Login failed. Please try again.' });
+        res.error('Login failed. Please try again.', null, 500);
     }
 };
 
 const getMe = (req, res) => {
-    res.json({ user: req.user });
+    res.success({ user: req.user });
 };
 
 const forgotPassword = async (req, res) => {
@@ -226,7 +225,7 @@ const forgotPassword = async (req, res) => {
         const userRes = await queryAll('SELECT id, name, email FROM users WHERE roll_number = $1', [cleanRoll]);
         if (userRes.length === 0 || !userRes[0].email) {
             // SEC-001: Generic response to prevent enumeration
-            return res.json({ success: true, message: 'If an account exists with that ID, a recovery code has been sent.' });
+            return res.success(null, 'If an account exists with that ID, a recovery code has been sent.');
         }
 
         const user = userRes[0];
@@ -245,15 +244,12 @@ const forgotPassword = async (req, res) => {
         console.log(`[RECOVERY] Protocol OTP for ${user.roll_number}: ${resetToken}`);
 
         if (!emailSent) {
-            return res.status(200).json({ 
-                status: 'success',
-                message: 'Recovery protocol initiated. Check institutional terminal for OTP bypass.' 
-            });
+            return res.success({ status: 'success' }, 'Recovery protocol initiated. Check institutional terminal for OTP bypass.');
         }
-        res.json({ success: true, message: 'Recovery code sent.' });
+        res.success(null, 'Recovery code sent.');
     } catch (err) {
         console.error('Forgot password error:', err.message);
-        res.status(500).json({ error: 'Failed to initiate recovery' });
+        res.error('Failed to initiate recovery', null, 500);
     }
 };
 
@@ -261,7 +257,7 @@ const resetPassword = async (req, res) => {
     try {
         const { roll_number, resetToken, newPassword } = req.body;
         if (!roll_number || !resetToken || !newPassword) {
-            return res.status(400).json({ error: 'Roll, token, and new password are required' });
+            return res.error('Roll, token, and new password are required', null, 400);
         }
 
         const cleanRoll = roll_number.trim().toUpperCase();
@@ -270,11 +266,11 @@ const resetPassword = async (req, res) => {
             [cleanRoll]
         );
 
-        if (userRes.length === 0) return res.status(404).json({ error: 'User not found' });
+        if (userRes.length === 0) return res.error('User not found', null, 404);
 
         const user = userRes[0];
         if (!user.reset_token || user.reset_token !== resetToken || new Date() > new Date(user.reset_expiry)) {
-            return res.status(400).json({ error: 'INVALID_OR_EXPIRED_TOKEN' });
+            return res.error('INVALID_OR_EXPIRED_TOKEN', null, 400);
         }
 
         const newHash = await bcrypt.hash(newPassword, 10);
@@ -283,10 +279,10 @@ const resetPassword = async (req, res) => {
             [newHash, user.id]
         );
 
-        res.json({ success: true, message: 'Password reset successful. You can now log in.' });
+        res.success(null, 'Password reset successful. You can now log in.');
     } catch (err) {
         console.error('Reset password error:', err.message);
-        res.status(500).json({ error: 'Failed to reset password' });
+        res.error('Failed to reset password', null, 500);
     }
 };
 
