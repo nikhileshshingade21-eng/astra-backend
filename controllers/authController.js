@@ -201,24 +201,24 @@ const login = async (req, res) => {
             await queryAll('UPDATE users SET fcm_token = $1 WHERE id = $2', [req.body.fcm_token, user.id]);
         }
 
-        // Case 1: Biometric Handshake
-        if (biometric_auth) {
+        // VULN-020 FIX: Prioritize Password over Biometrics to allow manual login for unenrolled users
+        if (password) {
+            const match = await bcrypt.compare(password, user.password_hash);
+            if (!match) {
+                return res.error('INVALID_CREDENTIALS', { message: 'The password provided is incorrect.' }, 401);
+            }
+            console.log(`[🛡️ AUTH] Password Entry: ${user.roll_number}`);
+        } 
+        // Case 2: Biometric Handshake (Only if no password provided)
+        else if (biometric_auth) {
             // VULN-017 FIX: Prevent unauthorized biometric entry for unenrolled accounts
             if (!user.biometric_enrolled && !req.body.face_auth) {
                 return res.error('BIOMETRIC_NOT_ENROLLED', { message: 'Biometrics not set up for this account.' }, 403);
             }
             console.log(`[🛡️ AUTH] Biometric Handshake: ${user.roll_number}`);
         } 
-        // Case 2: Password Fallback
         else {
-            if (!password) {
-                return res.error('PASSWORD_REQUIRED', { message: 'Password is required for manual login.' }, 401);
-            }
-            const match = await bcrypt.compare(password, user.password_hash);
-            if (!match) {
-                return res.error('INVALID_CREDENTIALS', { message: 'The password provided is incorrect.' }, 401);
-            }
-            console.log(`[🛡️ AUTH] Password Fallback: ${user.roll_number}`);
+            return res.error('CREDENTIALS_REQUIRED', { message: 'Please provide a password or use biometrics.' }, 401);
         }
 
         const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '2h' });
