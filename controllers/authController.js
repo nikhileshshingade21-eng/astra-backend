@@ -61,10 +61,14 @@ const register = async (req, res) => {
         const db = await getDb();
 
         // CHECK INSTITUTIONAL REGISTRY (Phase 4)
-        const verifiedList = await queryAll('SELECT id FROM verified_students WHERE roll_number = $1', [cleanRoll]);
+        const verifiedList = await queryAll('SELECT programme, section FROM verified_students WHERE roll_number = $1', [cleanRoll]);
         if (verifiedList.length === 0) {
             return res.error('Identity not found in institutional registry. Please contact admin.', null, 403);
         }
+
+        const officialData = verifiedList[0];
+        const assignedProgramme = officialData.programme || req.body.programme || 'B.Tech CSC';
+        const assignedSection = officialData.section || req.body.section || 'CS';
 
         // Check if roll number already exists
         const existing = await queryAll('SELECT id, password_hash, is_registered, face_embedding FROM users WHERE roll_number = $1', [cleanRoll]);
@@ -90,7 +94,7 @@ const register = async (req, res) => {
                 await queryAll(
                     `UPDATE users SET name = $1, email = $2, phone = $3, programme = $4, section = $5, password_hash = $6, 
                      biometric_enrolled = $7, is_registered = TRUE, device_id = $8, fcm_token = $9 WHERE id = $10`,
-                    [name, email || null, phone || null, programme || null, section || null, password_hash, 
+                    [name, email || null, phone || null, assignedProgramme, assignedSection, password_hash, 
                      biometric_enrolled ? 1 : 0, device_id, req.body.fcm_token || null, oldId]
                 );
                 userId = oldId;
@@ -105,7 +109,7 @@ const register = async (req, res) => {
                 `INSERT INTO users (roll_number, name, email, phone, programme, section, role, password_hash, 
                  biometric_enrolled, is_registered, device_id, fcm_token) 
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
-                [cleanRoll, name, email || null, phone || null, programme || null, section || null, 
+                [cleanRoll, name, email || null, phone || null, assignedProgramme, assignedSection, 
                  userRole, password_hash, biometric_enrolled ? 1 : 0, true, device_id, req.body.fcm_token || null]
             );
 
@@ -116,10 +120,10 @@ const register = async (req, res) => {
             }
         }
 
-        // Create welcome notification (Non-blocking)
+        // Create welcome notification with automated assignment info
         queryAll(
             `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
-            [userId, 'Welcome to ASTRA', `Your account has been created successfully. Roll: ${cleanRoll}`, 'success']
+            [userId, 'Welcome to ASTRA', `Account active! You have been assigned to ${assignedProgramme} (Section ${assignedSection}).`, 'success']
         ).catch(e => console.warn('Welcome notification failed:', e.message));
 
         // Generate token
@@ -179,6 +183,17 @@ const login = async (req, res) => {
         // If no device bound yet, bind it now (in-case migrated from legacy)
         if (!user.device_id && device_id) {
             await queryAll('UPDATE users SET device_id = $1 WHERE id = $2', [device_id, user.id]);
+        }
+
+        // SELF-HEALING: Sync missing programme/section from registry
+        if (!user.programme || !user.section) {
+            const registry = await queryAll('SELECT programme, section FROM verified_students WHERE roll_number = $1', [cleanRoll]);
+            if (registry.length > 0 && registry[0].programme && registry[0].section) {
+                await queryAll('UPDATE users SET programme = $1, section = $2 WHERE id = $3', [registry[0].programme, registry[0].section, user.id]);
+                user.programme = registry[0].programme;
+                user.section = registry[0].section;
+                console.log(`[🛠️ SELF-HEAL] Updated section for ${user.roll_number}`);
+            }
         }
 
         // Save FCM token if provided (for push notifications)
