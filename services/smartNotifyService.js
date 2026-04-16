@@ -17,7 +17,12 @@ const socketService = require('./socketService');
 const { getLocalDate } = require('../utils/dateUtils');
 const admin = require('./firebaseService');
 const AIEngine = require('./aiNotificationEngine');
-const firebaseReady = admin.apps.length > 0;
+
+// CRITICAL FIX: firebaseReady must be a FUNCTION, not a frozen constant.
+// The old code evaluated admin.apps.length once at module-load time.
+// If Firebase wasn't ready at that exact moment, ALL push notifications
+// were permanently disabled for the entire process lifetime.
+function isFirebaseReady() { return admin.apps.length > 0; }
 
 
 // ─── HELPER: Check if today is a system holiday ─────────────────────────────
@@ -243,11 +248,15 @@ async function sendSmartNotification(userId, templateKey, vars = {}, category = 
         });
         
         // 3. FCM push (Real background push notifications)
-        if (firebaseReady) {
+        if (isFirebaseReady()) {
             try {
                 const userQuery = await queryAll('SELECT fcm_token FROM users WHERE id = $1', [userId]);
                 if (userQuery.length > 0 && userQuery[0].fcm_token) {
                     const fcmRes = await admin.messaging().send({
+                        notification: {
+                            title: copy.title,
+                            body: copy.body
+                        },
                         data: { 
                             title: copy.title, 
                             body: copy.body,
@@ -257,6 +266,7 @@ async function sendSmartNotification(userId, templateKey, vars = {}, category = 
                         token: userQuery[0].fcm_token,
                         android: {
                             priority: 'high',
+                            notification: { sound: 'default', channelId: 'astra-class-reminders' }
                         }
                     });
                     console.log(`[FCM] Firebase Message Auth: OK -> ${fcmRes}`);
@@ -267,7 +277,7 @@ async function sendSmartNotification(userId, templateKey, vars = {}, category = 
                 console.error(`[FCM] Push failed for user ${userId}:`, fcmErr.message);
             }
         } else {
-            console.log(`[FCM] Skiped because firebaseReady is false`);
+            console.log(`[FCM] Skipped because Firebase is not ready (apps: ${admin.apps.length})`);
         }
         
         recordNotificationSent(userId, category);
@@ -500,7 +510,7 @@ async function checkWeatherAlerts() {
         console.log(`[WEATHER v2.0] State change → ${condition}/${tempBucket}/${timePhase} → ${templateKey}`);
         
         // Send to all students (using existing anti-spam)
-        const students = await queryAll("SELECT id FROM users WHERE role = 'student'");
+        const students = await queryAll("SELECT id FROM users WHERE programme IS NOT NULL AND section IS NOT NULL");
         let sent = 0;
         
         for (const student of students) {
@@ -518,7 +528,7 @@ async function checkWeatherAlerts() {
                 });
                 
                 // FCM push
-                if (firebaseReady) {
+                if (isFirebaseReady()) {
                     try {
                         const userQuery = await queryAll('SELECT fcm_token FROM users WHERE id = $1', [student.id]);
                         if (userQuery.length > 0 && userQuery[0].fcm_token) {
@@ -570,7 +580,7 @@ async function checkClassNotifications() {
             SELECT u.id as user_id, c.name as subject, c.start_time, c.end_time, c.room, c.code
             FROM users u
             JOIN classes c ON (u.programme = c.programme AND u.section = c.section)
-            WHERE u.role = 'student' AND c.day = $1
+            WHERE u.programme IS NOT NULL AND c.day = $1
         `, [currentDay]);
         
         let sent = 0;
@@ -750,7 +760,7 @@ async function sendMorningDigest() {
             
             // Dispatch personalized notifications
             const students = await queryAll(`
-                SELECT id, fcm_token FROM users WHERE role = 'student' AND programme = $1 AND section = $2
+                SELECT id, fcm_token FROM users WHERE programme = $1 AND section = $2
             `, [group.programme, group.section]);
             
             for (const student of students) {
@@ -770,13 +780,13 @@ async function sendMorningDigest() {
                     }
                     
                     // Fire FCM
-                    if (firebaseReady && student.fcm_token) {
+                    if (isFirebaseReady() && student.fcm_token) {
                         try {
-                            // Note: we're using data-only for high-priority bypass to avoid suppression
                             await admin.messaging().send({
+                                notification: { title: "☀️ Your Morning Briefing", body: digestBody },
                                 data: { title: "☀️ Your Morning Briefing", body: digestBody, type: 'morning' },
                                 token: student.fcm_token,
-                                android: { priority: 'high' }
+                                android: { priority: 'high', notification: { sound: 'default', channelId: 'astra-class-reminders' } }
                             });
                         } catch(e) {}
                     }
@@ -898,8 +908,13 @@ async function sendGoodNightDigest() {
              const firstName = user.name ? user.name.split(' ')[0] : '';
              const title = firstName ? `🌙 Good Night, ${firstName}!` : `🌙 Good Night!`;
              
+             if (!isFirebaseReady()) continue;
              try {
                  await admin.messaging().send({
+                     notification: {
+                         title: title,
+                         body: 'You crushed it today. ASTRA is going into sleep mode — get some rest and see you tomorrow! ✨'
+                     },
                      data: {
                          title: title,
                          body: 'You crushed it today. ASTRA is going into sleep mode — get some rest and see you tomorrow! ✨',
@@ -908,7 +923,8 @@ async function sendGoodNightDigest() {
                      },
                      token: user.fcm_token,
                      android: {
-                         priority: 'high'
+                         priority: 'high',
+                         notification: { sound: 'default', channelId: 'astra-class-reminders' }
                      }
                  });
                  successCount++;

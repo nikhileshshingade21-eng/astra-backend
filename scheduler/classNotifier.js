@@ -10,8 +10,8 @@ const path = require('path');
 const { queryAll } = require('../database_module');
 const socketService = require('../services/socketService');
 
-// Firebase is now managed by the centralized FirebaseService
-const firebaseReady = admin.apps.length > 0;
+// CRITICAL FIX: Dynamic check instead of frozen constant
+function isFirebaseReady() { return admin.apps.length > 0; }
 
 
 // In-memory cache for sent notifications
@@ -141,7 +141,7 @@ async function checkClasses() {
  * Send Firebase Cloud Messaging notification
  */
 async function sendNotification(fcmToken, { title, body, data }) {
-  if (!firebaseReady) {
+  if (!isFirebaseReady()) {
     console.log('[SCHEDULER] Firebase not ready, skipping push notification:', title);
     return null;
   }

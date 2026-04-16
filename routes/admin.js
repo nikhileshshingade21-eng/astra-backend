@@ -101,17 +101,24 @@ router.get('/force-notify', async (req, res) => {
         const weatherData = await weatherRes.json();
         const temp = weatherData.current ? Math.round(weatherData.current.temperature_2m) : 28;
         
-        // Fetch Classes
+        // Dynamic day detection
+        const now = new Date();
+        const istOffset = 5.5 * 60 * 60 * 1000;
+        const istTime = new Date(now.getTime() + istOffset);
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const currentDay = dayNames[istTime.getUTCDay()];
+        
+        // Fetch Classes — FIXED: Use PostgreSQL $1/$2 syntax
         const classes = await queryAll(
-            "SELECT name, start_time, room FROM classes WHERE programme = ? AND section = ? AND day = 'Wednesday' ORDER BY start_time ASC",
-            [adminUser.programme, adminUser.section]
+            "SELECT name, start_time, room FROM classes WHERE programme = $1 AND section = $2 AND day = $3 ORDER BY start_time ASC",
+            [adminUser.programme, adminUser.section, currentDay]
         );
 
         let classText = classes.length > 0 
-            ? classes.map(c => `- ${c.name} (${c.room}) at ${c.start_time}`).join('\n')
+            ? classes.map(c => `- ${c.name} (${c.room || 'TBA'}) at ${c.start_time}`).join('\n')
             : 'No classes scheduled for today!';
 
-        const message = `Current Weather: ${temp}°C 🌤️\n\nYour Schedule Today:\n${classText}`;
+        const message = `Current Weather: ${temp}°C 🌤️\n\nYour Schedule Today (${currentDay}):\n${classText}`;
 
         const fcmRes = await admin.messaging().send({
             token: adminUser.fcm_token,
