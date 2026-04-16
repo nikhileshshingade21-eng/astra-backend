@@ -214,7 +214,7 @@ const getDashboardStats = async (req, res) => {
             const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
             const todayClasses = await queryAll(`
-                SELECT c.id, c.code, c.name, c.start_time, c.end_time, c.room, c.faculty, c.day,
+                SELECT c.id, c.code, c.name, c.start_time, c.end_time, c.room, c.faculty_name, c.day,
                        a.status as attendance_status, a.marked_at
                 FROM classes c
                 LEFT JOIN attendance a ON c.id = a.class_id AND a.user_id = $1 AND a.date = $4

@@ -203,10 +203,17 @@ const login = async (req, res) => {
 
         // Case 1: Biometric Handshake
         if (biometric_auth) {
-             console.log(`[🛡️ AUTH] Biometric Handshake: ${user.roll_number}`);
+            // VULN-017 FIX: Prevent unauthorized biometric entry for unenrolled accounts
+            if (!user.biometric_enrolled && !req.body.face_auth) {
+                return res.error('BIOMETRIC_NOT_ENROLLED', { message: 'Biometrics not set up for this account.' }, 403);
+            }
+            console.log(`[🛡️ AUTH] Biometric Handshake: ${user.roll_number}`);
         } 
         // Case 2: Password Fallback
         else {
+            if (!password) {
+                return res.error('PASSWORD_REQUIRED', { message: 'Password is required for manual login.' }, 401);
+            }
             const match = await bcrypt.compare(password, user.password_hash);
             if (!match) {
                 return res.error('INVALID_CREDENTIALS', { message: 'The password provided is incorrect.' }, 401);
