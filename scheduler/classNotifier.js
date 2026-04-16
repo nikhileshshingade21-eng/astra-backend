@@ -4,56 +4,15 @@
  */
 
 const cron = require('node-cron');
-const admin = require('firebase-admin');
+const admin = require('../services/firebaseService');
 const fs = require('fs');
 const path = require('path');
 const { queryAll } = require('../database_module');
 const socketService = require('../services/socketService');
 
-// Initialize Firebase Admin SDK (supports both file and env variable)
-let serviceAccount;
-const credPath = path.join(__dirname, '..', 'firebase-credentials.json');
+// Firebase is now managed by the centralized FirebaseService
+const firebaseReady = admin.apps.length > 0;
 
-if (fs.existsSync(credPath)) {
-  serviceAccount = require(credPath);
-} else if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON.trim()) {
-  try {
-    serviceAccount = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
-  } catch (err) {
-    console.error('❌ Malformed GOOGLE_APPLICATION_CREDENTIALS_JSON. Check Railway settings.');
-    module.exports = { startScheduler: () => {} };
-    return;
-  }
-} else {
-  console.log('ℹ️ No Firebase credentials found. Scheduler in Idle mode.');
-  module.exports = { startScheduler: () => {} };
-  return;
-}
-
-// Global Identity Sync: Ensure the PEM private key is correctly parsed regardless of source
-if (serviceAccount && serviceAccount.private_key) {
-  serviceAccount.private_key = serviceAccount.private_key
-    .replace(/\\n/g, '\n')
-    .replace(/\r/g, '')
-    .trim();
-}
-
-let firebaseReady = false;
-if (!admin.apps.length) {
-  try {
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-    firebaseReady = true;
-    console.log('✅ Firebase Admin SDK initialized successfully.');
-  } catch (fbErr) {
-    console.error('⚠️ Firebase Admin SDK initialization failed:', fbErr.message);
-    console.error('   Push notifications will be disabled. The scheduler will run in logging-only mode.');
-    console.error('   To fix: Replace firebase-credentials.json with a fresh key from Firebase Console.');
-  }
-} else {
-  firebaseReady = true;
-}
 
 // In-memory cache for sent notifications
 const sentNotifications = new Map();

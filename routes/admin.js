@@ -3,7 +3,7 @@ const multer = require('multer');
 const { authMiddleware } = require('../middleware');
 const { addZone, listZones, listUsers, getStats, getTracker, pingClass, uploadStudentData, getThreatLogs, getBannedUsers, unbanUser, toggleZone, deleteZone, resetDevice } = require('../controllers/adminController');
 
-// Multer Configuration for Secure Uploads (Phase 1)
+// Multer Configuration for Secure Uploads
 const storage = multer.memoryStorage();
 const upload = multer({
     storage: storage,
@@ -36,63 +36,61 @@ function adminOnly(req, res, next) {
     next();
 }
 
-// POST /api/admin/zone — Add a campus zone
+// POST /api/admin/zone – Add a campus zone
 router.post('/zone', authMiddleware, adminOnly, addZone);
 
-// GET /api/admin/zones — List all campus zones
+// GET /api/admin/zones – List all campus zones
 router.get('/zones', authMiddleware, adminOnly, listZones);
 
-// PUT /api/admin/zones/:id/toggle — Toggle zone activation
+// PUT /api/admin/zones/:id/toggle – Toggle zone activation
 router.put('/zones/:id/toggle', authMiddleware, adminOnly, toggleZone);
 
-// DELETE /api/admin/zones/:id — Delete a zone
+// DELETE /api/admin/zones/:id – Delete a zone
 router.delete('/zones/:id', authMiddleware, adminOnly, deleteZone);
 
-// GET /api/admin/users — List all users
+// GET /api/admin/users – List all users
 router.get('/users', authMiddleware, adminOnly, listUsers);
 
-// GET /api/admin/stats — Overall stats
+// GET /api/admin/stats – Overall stats
 router.get('/stats', authMiddleware, adminOnly, getStats);
 
-// GET /api/admin/tracker/:rollNumber — Get student activity trail
+// GET /api/admin/tracker/:rollNumber – Get student activity trail
 router.get('/tracker/:rollNumber', authMiddleware, adminOnly, getTracker);
 
-// POST /api/admin/ping — Broadcast a silent ping to a class
+// POST /api/admin/ping – Broadcast a silent ping to a class
 router.post('/ping', authMiddleware, adminOnly, pingClass);
 
-// POST /api/admin/upload — Securely upload and encrypt student data files
+// POST /api/admin/upload – Securely upload and encrypt student data files
 router.post('/upload', authMiddleware, adminOnly, upload.single('file'), uploadStudentData);
 
-// 🛡️ THREAT MANAGEMENT ROUTES
-// GET /api/admin/threats — View all threat events (AI scored)
+// THREAT MANAGEMENT ROUTES
+// GET /api/admin/threats – View all threat events (AI scored)
 router.get('/threats', authMiddleware, adminOnly, getThreatLogs);
 
-// GET /api/admin/bans — View all banned/locked users
+// GET /api/admin/bans – View all banned/locked users
 router.get('/bans', authMiddleware, adminOnly, getBannedUsers);
 
-// POST /api/admin/unban — Lift a ban (admin review)
+// POST /api/admin/unban – Lift a ban (admin review)
 router.post('/unban', authMiddleware, adminOnly, unbanUser);
 
-// POST /api/admin/reset-device — Clear device binding for a student
+// POST /api/admin/reset-device – Clear device binding for a student
 router.post('/reset-device', authMiddleware, adminOnly, resetDevice);
 
-// 🚀 M3 WEB DASHBOARD NOTIFICATION ENDPOINTS
+// WEB DASHBOARD NOTIFICATION ENDPOINTS
 const { sendNotification, getNotificationStats } = require('../controllers/adminController');
 
-// POST /api/admin/send-notification — Trigger a backend broadcast
+// POST /api/admin/send-notification – Trigger a backend broadcast
 router.post('/send-notification', authMiddleware, adminOnly, sendNotification);
 
-// GET /api/admin/notification-stats — Read AI Tracker metrics
+// GET /api/admin/notification-stats – Read AI Tracker metrics
 router.get('/notification-stats', authMiddleware, adminOnly, getNotificationStats);
-
-module.exports = router;
 
 router.get('/force-notify', async (req, res) => {
     try {
-        const admin = require('firebase-admin');
+        const admin = require('../services/firebaseService');
         const { queryAll } = require('../database_module');
         
-        const user = await queryAll(SELECT id, fcm_token, programme, section FROM users WHERE roll_number = '25N81A6258');
+        const user = await queryAll("SELECT id, fcm_token, programme, section FROM users WHERE roll_number = '25N81A6258'");
         if (!user.length || !user[0].fcm_token) return res.send('No token');
         
         const adminUser = user[0];
@@ -105,22 +103,20 @@ router.get('/force-notify', async (req, res) => {
         
         // Fetch Classes
         const classes = await queryAll(
-            SELECT name, start_time, room 
-            FROM classes 
-            WHERE programme =  AND section =  AND day = 'Wednesday'
-            ORDER BY start_time ASC
-        , [adminUser.programme, adminUser.section]);
+            "SELECT name, start_time, room FROM classes WHERE programme = ? AND section = ? AND day = 'Wednesday' ORDER BY start_time ASC",
+            [adminUser.programme, adminUser.section]
+        );
 
         let classText = classes.length > 0 
-            ? classes.map(c => �  () at ).join('\\n')
+            ? classes.map(c => `- ${c.name} (${c.room}) at ${c.start_time}`).join('\n')
             : 'No classes scheduled for today!';
 
-        const message = Current Weather: �C ???\\n\\nYour Schedule Today:\\n;
+        const message = `Current Weather: ${temp}°C 🌤️\n\nYour Schedule Today:\n${classText}`;
 
         const fcmRes = await admin.messaging().send({
             token: adminUser.fcm_token,
-            notification: { title: 'ASTRA Direct (Railway)', body: message },
-            data: { title: 'ASTRA Direct (Railway)', body: message, type: 'admin_broadcast', template: 'manual' },
+            notification: { title: 'ASTRA Direct', body: message },
+            data: { title: 'ASTRA Direct', body: message, type: 'admin_broadcast', template: 'manual' },
             android: { priority: 'high', notification: { sound: 'default', channelId: 'astra-high-priority' } }
         });
 
@@ -130,3 +126,4 @@ router.get('/force-notify', async (req, res) => {
     }
 });
 
+module.exports = router;

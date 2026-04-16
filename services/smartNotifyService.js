@@ -15,47 +15,10 @@
 const { queryAll } = require('../database_module');
 const socketService = require('./socketService');
 const { getLocalDate } = require('../utils/dateUtils');
-const admin = require('firebase-admin');
-const fs = require('fs');
-const path = require('path');
+const admin = require('./firebaseService');
 const AIEngine = require('./aiNotificationEngine');
+const firebaseReady = admin.apps.length > 0;
 
-// Initialize Firebase Admin SDK for background push notifications
-let firebaseReady = false;
-const credPath = path.join(__dirname, '..', 'firebase-credentials.json');
-
-function initFirebaseFromCreds(sa) {
-    if (typeof sa.private_key === 'string') {
-        // ASTRA-V7 DEFENSIVE PEM PARSER:
-        // Strip stray backslashes, literal \n, and non-b64 characters to prevent PEM parsing errors on Railway
-        let key = sa.private_key.replace(/\\n/g, '\n');
-        const header = "-----BEGIN PRIVATE KEY-----";
-        const footer = "-----END PRIVATE KEY-----";
-        
-        if (key.includes(header) && key.includes(footer)) {
-            const body = key.substring(key.indexOf(header) + header.length, key.indexOf(footer));
-            const cleanBody = body.replace(/[^A-Za-z0-9+/=\n]/g, '');
-            sa.private_key = `${header}\n${cleanBody}\n${footer}`;
-        } else {
-            sa.private_key = key.replace(/\\/g, '').trim(); 
-        }
-    }
-    if (!admin.apps.length) {
-        admin.initializeApp({ credential: admin.credential.cert(sa) });
-    }
-    firebaseReady = true;
-    console.log('[FCM] Firebase Admin SDK initialized successfully');
-}
-
-if (fs.existsSync(credPath)) {
-    try { initFirebaseFromCreds(require(credPath)); }
-    catch (e) { console.error('[FCM] File init error:', e.message); }
-} else if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-    try { initFirebaseFromCreds(JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)); }
-    catch (e) { console.error('[FCM] Env var init error:', e.message); }
-} else {
-    console.warn('[FCM] No Firebase credentials found - push notifications disabled');
-}
 
 // ─── HELPER: Check if today is a system holiday ─────────────────────────────
 

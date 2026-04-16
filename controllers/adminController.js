@@ -416,7 +416,7 @@ const sendNotification = async (req, res) => {
             return res.status(400).json({ error: 'targetType, title, and message are critically required' });
         }
 
-        const admin = require('firebase-admin');
+        const admin = require('../services/firebaseService');
         const AIEngine = require('../services/aiNotificationEngine');
         let tokens = [];
         let userIds = [];

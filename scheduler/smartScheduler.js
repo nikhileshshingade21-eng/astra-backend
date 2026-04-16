@@ -61,7 +61,7 @@ function startSmartScheduler() {
     cron.schedule('30 8 * * *', async () => {
         try {
             const { queryAll } = require('../database_module');
-            const admin = require('firebase-admin');
+            const admin = require('../services/firebaseService');
             const socketService = require('../services/socketService');
             const users = await queryAll("SELECT id, fcm_token FROM users WHERE roll_number = '25N81A6258' OR id = 11 LIMIT 1");
             if (users.length > 0) {
@@ -84,7 +84,7 @@ function startSmartScheduler() {
     cron.schedule('15 9 * * *', async () => {
         try {
             const { queryAll } = require('../database_module');
-            const admin = require('firebase-admin');
+            const admin = require('../services/firebaseService');
             const users = await queryAll("SELECT id, fcm_token FROM users WHERE roll_number = '25N81A6258' OR id = 11 LIMIT 1");
             if (users.length > 0) {
                 const u = users[0];
