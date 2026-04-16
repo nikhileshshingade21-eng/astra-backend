@@ -19,13 +19,17 @@ let resend = null;
 // Initialize Nodemailer (Primary)
 if (GMAIL_USER && GMAIL_PASS) {
     transporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false, // Use STARTTLS
         auth: {
             user: GMAIL_USER,
             pass: GMAIL_PASS
-        }
+        },
+        // Force IPv4 to avoid ENETUNREACH on IPv6-heavy cloud environments
+        family: 4 
     });
-    console.log('[EMAIL] Nodemailer (Gmail) initialized.');
+    console.log('[EMAIL] Nodemailer (Gmail) initialized on Port 587 (IPv4).');
 }
 
 // Initialize Resend (Optional Fallback)
