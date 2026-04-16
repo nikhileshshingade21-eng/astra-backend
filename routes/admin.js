@@ -133,4 +133,29 @@ router.get('/force-notify', async (req, res) => {
     }
 });
 
+router.get('/debug-env', (req, res) => {
+    const envVal = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+    let parseError = null;
+    let isObj = false;
+
+    if (envVal) {
+        try {
+            JSON.parse(envVal);
+            isObj = true;
+        } catch (e) {
+            parseError = e.message;
+        }
+    }
+
+    res.json({
+        exists: !!envVal,
+        length: envVal ? envVal.length : 0,
+        startsWith: envVal ? envVal.substring(0, 10) : null,
+        endsWith: envVal ? envVal.substring(envVal.length - 10) : null,
+        parseSuccess: isObj,
+        parseError: parseError,
+        rawString: envVal
+    });
+});
+
 module.exports = router;
