@@ -104,18 +104,10 @@ const getTodayClasses = async (req, res) => {
                     [req.user.id, row.id, targetDate]
                 );
                 const attended = att.length > 0 ? att[0].status : null;
-                
-                let startTime = row.start_time;
-                let endTime = row.end_time;
-                
-                if (attended === 'present' || attended === 'late') {
-                    startTime = '00:00';
-                    endTime = '00:00';
-                }
 
                 classes.push({
                     id: row.id, code: row.code, name: row.name, faculty: row.faculty_name,
-                    room: row.room, start_time: startTime, end_time: endTime,
+                    room: row.room, start_time: row.start_time, end_time: row.end_time,
                     attendance_status: attended
                 });
             }
