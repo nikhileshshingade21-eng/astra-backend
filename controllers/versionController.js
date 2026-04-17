@@ -17,15 +17,12 @@
  */
 
 // ── UPDATE THESE WHEN RELEASING A NEW VERSION ────────────────
-const LATEST_VERSION_CODE = 4;                    // Increment this for each release
-const LATEST_VERSION_NAME = '3.2.6';              // Human-readable version
+const LATEST_VERSION_CODE = 5;                    // Increment this for each release
+const LATEST_VERSION_NAME = '3.2.7';              // Human-readable version
 const FORCE_UPDATE = false;                        // Set true for critical/security updates
 const APK_DOWNLOAD_URL = 'https://github.com/nikhileshshingade21-eng/astra-releases/releases/download/latest/app-release.apk';
-const CHANGELOG = `• Fixed notification tap handling — now opens correct screens
-• Added background notification navigation support
-• Improved app launch reliability
-• Stability fixes for Students and Admin tools
-• Security patch for registration exploits`;
+const CHANGELOG = `• UI Improvement: Changed dark text to white on the Attendance screen for better readability
+• Backwards compatibility updates`;
 
 const checkVersion = async (req, res) => {
     try {
