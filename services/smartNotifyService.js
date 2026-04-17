@@ -275,6 +275,10 @@ async function sendSmartNotification(userId, templateKey, vars = {}, category = 
                 }
             } catch (fcmErr) {
                 console.error(`[FCM] Push failed for user ${userId}:`, fcmErr.message);
+                if (fcmErr.code === 'messaging/registration-token-not-registered' || fcmErr.message.includes('not found')) {
+                    await queryAll('UPDATE users SET fcm_token = NULL WHERE id = $1', [userId]);
+                    console.log(`[FCM] Cleared stale token for user ${userId}`);
+                }
             }
         } else {
             console.log(`[FCM] Skipped because Firebase is not ready (apps: ${admin.apps.length})`);
@@ -542,6 +546,10 @@ async function checkWeatherAlerts() {
                         }
                     } catch (fcmErr) {
                         console.error(`[FCM] Weather push failed for ${student.id}:`, fcmErr.message);
+                        if (fcmErr.code === 'messaging/registration-token-not-registered' || fcmErr.message.includes('not found')) {
+                            await queryAll('UPDATE users SET fcm_token = NULL WHERE id = $1', [student.id]);
+                            console.log(`[FCM] Cleared stale weather token for user ${student.id}`);
+                        }
                     }
                 }
                 
@@ -789,7 +797,11 @@ async function sendMorningDigest() {
                                 token: student.fcm_token,
                                 android: { priority: 'high', notification: { sound: 'default', channelId: 'astra-class-reminders' } }
                             });
-                        } catch(e) {}
+                        } catch(e) {
+                            if (e.code === 'messaging/registration-token-not-registered' || e.message.includes('not found')) {
+                                await queryAll('UPDATE users SET fcm_token = NULL WHERE id = $1', [student.id]);
+                            }
+                        }
                     }
                     sent++;
                     
