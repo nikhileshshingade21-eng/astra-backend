@@ -102,6 +102,7 @@ app.use('/api/ai/approvals', require('./routes/aiApprovals'));
 app.use('/api/tenant', require('./routes/tenant'));
 app.use('/api/announcements', require('./routes/announcements'));
 app.use('/api', require('./routes/system'));
+app.use('/api/system', require('./routes/system')); // ALIAS for backward compatibility with v3.2.4 and below
 app.get('/api/download/latest', (req, res) => {
     // Current release artifact
     res.redirect('https://github.com/nikhil/astra/releases/download/v1.2.1/app-release.apk');
