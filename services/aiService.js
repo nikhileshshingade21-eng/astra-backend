@@ -13,7 +13,9 @@ const getPredictedMarks = async (studentId, historicalMarks, recentAttendance) =
         }, { timeout: AI_TIMEOUT });
         return response.data;
     } catch (error) {
-        console.error("AI Marks Prediction Error:", error.message);
+        if (!error.response || error.response.status !== 503) {
+            console.error("[ASTRA AI Module] Marks Prediction failed:", error.message);
+        }
         return { error: 'Failed to predict marks' };
     }
 };
@@ -27,7 +29,9 @@ const getAttendanceDrift = async (studentId, historicalMarks, recentAttendance) 
         }, { timeout: AI_TIMEOUT });
         return response.data;
     } catch (error) {
-        console.error("AI Attendance Drift Error:", error.message);
+        if (!error.response || error.response.status !== 503) {
+            console.error("[ASTRA AI Module] Drift Analysis failed:", error.message);
+        }
         return { error: 'Failed to analyze drift' };
     }
 };

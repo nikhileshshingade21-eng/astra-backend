@@ -29,6 +29,7 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
+app.set('trust proxy', 1); // Trust first proxy (required by express-rate-limit for Railway)
 
 // ASTRA V7 PRODUCTION: Serve static landing page
 app.use(express.static(path.join(__dirname, 'public')));

@@ -131,8 +131,33 @@ const sendFeedbackEmail = async (userId, userRoll, type, message) => {
     return sendEmail(ADMIN_EMAIL, `ASTRA Feedback: ${type.toUpperCase()} from ${userRoll}`, html);
 };
 
+/**
+ * Password Reset Email
+ */
+const sendResetEmail = async (to, name, resetToken) => {
+    const html = `
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; background-color: #f4f7ff; color: #1e293b;">
+            <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);">
+                <div style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); padding: 30px; text-align: center;">
+                    <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 1px;">ACCOUNT RECOVERY</h1>
+                </div>
+                <div style="padding: 40px;">
+                    <p style="font-size: 16px; line-height: 1.6;">Hello ${name},</p>
+                    <p style="font-size: 16px; line-height: 1.6;">Your password reset code is:</p>
+                    <div style="background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px dashed #6366f1; text-align: center; margin: 20px 0; font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #6366f1;">
+                        ${resetToken}
+                    </div>
+                    <p style="font-size: 14px; color: #64748b;">This code is valid for exactly 15 minutes. If you did not request a password reset, please ignore this email.</p>
+                </div>
+            </div>
+        </div>
+    `;
+    return sendEmail(to, `ASTRA: Password Recovery Code`, html);
+};
+
 module.exports = {
     sendEmail,
     sendAttendanceReport,
-    sendFeedbackEmail
+    sendFeedbackEmail,
+    sendResetEmail
 };
