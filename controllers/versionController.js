@@ -17,8 +17,8 @@
  */
 
 // ── UPDATE THESE WHEN RELEASING A NEW VERSION ────────────────
-const LATEST_VERSION_CODE = 1;                    // Increment this for each release
-const LATEST_VERSION_NAME = '3.2.3';              // Human-readable version
+const LATEST_VERSION_CODE = 2;                    // Increment this for each release
+const LATEST_VERSION_NAME = '3.2.4';              // Human-readable version
 const FORCE_UPDATE = false;                        // Set true for critical/security updates
 const APK_DOWNLOAD_URL = 'https://github.com/nikhileshshingade21-eng/astra-releases/releases/download/latest/astra.apk';
 const CHANGELOG = `• Bunk calculator fixed — accurate semester-wide tracking
