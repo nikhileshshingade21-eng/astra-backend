@@ -130,8 +130,8 @@ const register = async (req, res) => {
         ).catch(e => console.warn('Welcome notification failed:', e.message));
 
         // Generate token
-        // VULN-007 FIX: Reduced token expiry from 30d to 2h
-        const token = jwt.sign({ userId: userId, role: userRole }, JWT_SECRET, { expiresIn: '2h' });
+        // Restored token expiry back to 30d to prevent logouts during college hours
+        const token = jwt.sign({ userId: userId, role: userRole }, JWT_SECRET, { expiresIn: '30d' });
 
         res.success({
             token,
@@ -224,7 +224,7 @@ const login = async (req, res) => {
             return res.error('CREDENTIALS_REQUIRED', { message: 'Please provide a password or use biometrics.' }, 401);
         }
 
-        const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '2h' });
+        const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
 
         // Log login notification
         await queryAll(
