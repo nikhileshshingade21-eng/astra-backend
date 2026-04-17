@@ -232,20 +232,29 @@ const mark = async (req, res) => {
                 const { start_time: classStart, end_time: classEnd, name: className } = cls[0];
                 const now = new Date();
                 
-                // Parse class end time
+                // Parse class start time to enforce "Class Must Have Started" rule
+                const [startH, startM] = classStart.split(':').map(Number);
+                const classStartDate = new Date(now);
+                classStartDate.setHours(startH, startM, 0, 0);
+
+                // Add 120s grace buffer for server/client clock skew
+                const GRACE_BUFFER_MS = 120 * 1000;
+                const protocolOpenTime = new Date(classStartDate.getTime() - GRACE_BUFFER_MS);
+                
+                // Strictly enforce lock BEFORE class starts
+                if (now < protocolOpenTime) {
+                    return res.error('TIME PROTOCOL BREACH', {
+                        message: `Attendance marking for ${className} is locked. You can only mark attendance after the class officially starts at ${classStart}.`
+                    }, 403);
+                }
+
+                // If class ended completely, consider marking missed timeframe if needed
                 const [endH, endM] = classEnd.split(':').map(Number);
                 const classEndDate = new Date(now);
                 classEndDate.setHours(endH, endM, 0, 0);
-
-                // Last 10 minutes logic (Enforce only in production)
-                // CHAOS-FIX: Add 120s grace buffer for server/client clock skew
-                const GRACE_BUFFER_MS = 120 * 1000;
-                const protocolOpenTime = new Date(classEndDate.getTime() - 10 * 60000 - GRACE_BUFFER_MS);
-                
-                if (process.env.NODE_ENV === 'production' && now < protocolOpenTime) {
-                    return res.error('TIME PROTOCOL BREACH', {
-                        message: `Attendance marking for ${className} is only permitted in the FINAL 10 MINUTES of the session. Protocol opens at ${protocolOpenTime.toLocaleTimeString()}.`
-                    }, 403);
+                if (now > new Date(classEndDate.getTime() + GRACE_BUFFER_MS)) {
+                    // Optional: allow late markings or block them
+                    // By default, we let them mark late, which will register as status='late' below
                 }
 
                 if (now > classEndDate) {
