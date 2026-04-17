@@ -20,7 +20,7 @@
 const LATEST_VERSION_CODE = 3;                    // Increment this for each release
 const LATEST_VERSION_NAME = '3.2.5';              // Human-readable version
 const FORCE_UPDATE = false;                        // Set true for critical/security updates
-const APK_DOWNLOAD_URL = 'https://github.com/nikhileshshingade21-eng/astra-releases/releases/download/latest/astra.apk';
+const APK_DOWNLOAD_URL = 'https://github.com/nikhileshshingade21-eng/astra-releases/releases/download/latest/app-release.apk';
 const CHANGELOG = `• Fixed notification tap handling — now opens correct screens
 • Added background notification navigation support
 • Improved app launch reliability
