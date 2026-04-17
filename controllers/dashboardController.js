@@ -210,8 +210,10 @@ const getDashboardStats = async (req, res) => {
         if (req.user.programme && req.user.section) {
             const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             const now = new Date();
-            const currentDay = dayNames[now.getDay()];
-            const currentMinutes = now.getHours() * 60 + now.getMinutes();
+            const istOffset = 5.5 * 60 * 60 * 1000;
+            const istTime = new Date(now.getTime() + istOffset);
+            const currentDay = dayNames[istTime.getUTCDay()];
+            const currentMinutes = istTime.getUTCHours() * 60 + istTime.getUTCMinutes();
 
             const todayClasses = await queryAll(`
                 SELECT c.id, c.code, c.name, c.start_time, c.end_time, c.room, c.faculty_name, c.day,
