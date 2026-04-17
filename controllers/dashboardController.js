@@ -40,8 +40,10 @@ const getDashboardStats = async (req, res) => {
         }
 
         // Attendance percentage (Present + Late are both 'attended')
+        // Use totalClasses (scheduled slots) as denominator for accurate semester-wide percentage
         const attendedTotal = presentCount + lateCount;
-        const percentage = totalAttended > 0 ? Math.round((attendedTotal / totalAttended) * 100) : 0;
+        const effectiveTotal = Math.max(totalClasses, totalAttended);
+        const percentage = effectiveTotal > 0 ? Math.round((attendedTotal / effectiveTotal) * 100) : 0;
 
         // Streak — consecutive days with attendance
         let streak = 0;
@@ -188,7 +190,7 @@ const getDashboardStats = async (req, res) => {
 
         // --- NEW: BUNK CALCULATOR LOGIC (Mathematically Accurate) ---
         const A = presentCount + lateCount;
-        const T = totalAttended;
+        const T = Math.max(totalClasses, totalAttended); // Use scheduled classes as total
         const target = 0.75;
         let bunkData = { can_bunk: 0, must_attend: 0 };
 
