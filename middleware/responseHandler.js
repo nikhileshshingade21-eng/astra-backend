@@ -7,7 +7,8 @@ module.exports = function responseHandler(req, res, next) {
     };
 
     res.error = function (message = 'An error occurred', data = null, statusCode = 400) {
-        return res.status(statusCode).json({ success: false, message, data });
+        const errorData = data || { error: message };
+        return res.status(statusCode).json({ success: false, message, data: errorData });
     };
 
     next();
