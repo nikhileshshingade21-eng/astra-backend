@@ -32,9 +32,7 @@ const classesData = [
     { code: 'DS LAB', name: 'DS Lab', faculty_name: 'Mr. K Praveen Kumar', room: '220', day: 'Friday', start_time: '13:50', end_time: '16:00', prog: 'B.Tech CS', section: 'CS' },
 
     { code: 'EDCAD', name: 'EDCAD', faculty_name: 'Dr. K. Govardhan Reddy', room: '320', day: 'Saturday', start_time: '09:00', end_time: '11:10', prog: 'B.Tech CS', section: 'CS' },
-    { code: 'ODEVC', name: 'ODEVC', faculty_name: 'Mrs. A Swarnalatha', room: '214', day: 'Saturday', start_time: '11:10', end_time: '12:10', prog: 'B.Tech CS', section: 'CS' },
-    { code: 'SPORTS', name: 'Sports', faculty_name: '', room: 'Field', day: 'Saturday', start_time: '12:50', end_time: '13:50', prog: 'B.Tech CS', section: 'CS' },
-    { code: 'SSLITE', name: 'SSLite', faculty_name: '', room: '214', day: 'Saturday', start_time: '13:50', end_time: '16:00', prog: 'B.Tech CS', section: 'CS' }
+    { code: 'ODEVC', name: 'ODEVC', faculty_name: 'Mrs. A Swarnalatha', room: '214', day: 'Saturday', start_time: '11:10', end_time: '12:10', prog: 'B.Tech CS', section: 'CS' }
 ];
 
 async function run() {

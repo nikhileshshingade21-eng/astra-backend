@@ -45,9 +45,7 @@ async function seed() {
             { day: 'Friday', code: 'ODEVC', name: 'Ordinary Diff. Equations', faculty: 'Mrs. A Swarnalatha', room: '214', start: '11:10', end: '12:10' },
             { day: 'Friday', code: 'DS LAB', name: 'Data Structures Lab', faculty: 'Mr. K Praveen Kumar', room: '220', start: '13:50', end: '16:00' },
             { day: 'Saturday', code: 'EDCAD', name: 'Eng. Drawing & CAD', faculty: 'Dr. K Govardhan Reddy', room: '320', start: '09:00', end: '11:10' },
-            { day: 'Saturday', code: 'ODEVC', name: 'Ordinary Diff. Equations', faculty: 'Mrs. A Swarnalatha', room: '214', start: '11:10', end: '12:10' },
-            { day: 'Saturday', code: 'SPORTS', name: 'Sports Area', faculty: 'Coach', room: 'Ground', start: '12:50', end: '13:50' },
-            { day: 'Saturday', code: 'SSLITE', name: 'Self Study', faculty: 'Atoshi Roy', room: '214', start: '13:50', end: '16:00' }
+            { day: 'Saturday', code: 'ODEVC', name: 'Ordinary Diff. Equations', faculty: 'Mrs. A Swarnalatha', room: '214', start: '11:10', end: '12:10' }
         ];
 
         const dsTemplate = [

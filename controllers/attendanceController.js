@@ -227,11 +227,19 @@ const mark = async (req, res) => {
         // Determine status and enforce TIME WINDOW (last 10 mins)
         let status = 'present';
         if (class_id) {
-            const cls = await queryAll('SELECT start_time, end_time, name FROM classes WHERE id = $1', [class_id]);
+            const cls = await queryAll('SELECT start_time, end_time, name, day FROM classes WHERE id = $1', [class_id]);
             if (cls.length > 0) {
-                const { start_time: classStart, end_time: classEnd, name: className } = cls[0];
+                const { start_time: classStart, end_time: classEnd, name: className, day: classDay } = cls[0];
                 const now = new Date();
                 
+                const currentDayName = now.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Kolkata' });
+
+                if (classDay && classDay !== currentDayName && classDay !== 'General') {
+                    return res.error('DAY PROTOCOL BREACH', {
+                        message: `Attendance marking for ${className} is locked. This class is scheduled for ${classDay}, not today (${currentDayName}).`
+                    }, 403);
+                }
+
                 // Parse class start time to enforce "Class Must Have Started" rule
                 const [startH, startM] = classStart.split(':').map(Number);
                 const classStartDate = new Date(now);
