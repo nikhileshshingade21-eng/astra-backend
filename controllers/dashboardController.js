@@ -263,12 +263,12 @@ const getDashboardStats = async (req, res) => {
 
         if (badgesToAward.length > 0) {
             try {
-                // Using db directly here or a script? We need to use `getDb` since we are in a controller.
-                const db = require('../database_module.js').getDb();
-                const insertBadge = db.prepare('INSERT OR IGNORE INTO user_badges (user_id, badge_id) VALUES (?, ?)');
-                badgesToAward.forEach(badgeId => {
-                    insertBadge.run(userId, badgeId);
-                });
+                for (const badgeId of badgesToAward) {
+                    await queryAll(
+                        'INSERT INTO user_badges (user_id, badge_id) VALUES ($1, $2) ON CONFLICT (user_id, badge_id) DO NOTHING',
+                        [userId, badgeId]
+                    );
+                }
             } catch (err) {
                 console.warn('[Badge Engine] Error awarding badges:', err.message);
             }

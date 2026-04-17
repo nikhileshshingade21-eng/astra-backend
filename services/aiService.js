@@ -162,6 +162,7 @@ const matchJobs = async (studentId, studentCgpa, jobsList) => {
 
 module.exports = {
     AI_URL,
+    getPredictedMarks,
     getAttendanceDrift,
     chat,
     matchJobs
