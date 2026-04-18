@@ -17,12 +17,12 @@
  */
 
 // ── UPDATE THESE WHEN RELEASING A NEW VERSION ────────────────
-const LATEST_VERSION_CODE = 5;                    // Increment this for each release
-const LATEST_VERSION_NAME = '3.2.7';              // Human-readable version
+const LATEST_VERSION_CODE = 6;                    // Increment this for each release
+const LATEST_VERSION_NAME = '3.2.8';              // Human-readable version
 const FORCE_UPDATE = false;                        // Set true for critical/security updates
 const APK_DOWNLOAD_URL = 'https://github.com/nikhileshshingade21-eng/astra-releases/releases/download/latest/app-release.apk';
-const CHANGELOG = `• UI Improvement: Changed dark text to white on the Attendance screen for better readability
-• Backwards compatibility updates`;
+const CHANGELOG = `• Finalized UI Fix: Resolved issue where multiple text elements were invisible in dark mode. All screens are now fully readable!
+• Enabled soft-white text colors across all labels.`;
 
 const checkVersion = async (req, res) => {
     try {
