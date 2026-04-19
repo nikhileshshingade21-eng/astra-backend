@@ -226,13 +226,6 @@ async function start() {
             console.error('[WARN] V3 job scheduling failed:', err.message);
         }
 
-        try {
-            // Start class notification scheduler if credentials found
-            const { startScheduler } = require('./scheduler/classNotifier');
-            startScheduler();
-        } catch (err) {
-            console.error('[WARN] Class notification scheduler failed:', err.message);
-        }
 
         try {
             // Start SMART notification engine (weather, reminders, nudges, streaks)

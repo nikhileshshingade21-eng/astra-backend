@@ -173,14 +173,14 @@ const cooldowns = new Map();   // `userId:category` → timestamp
 const MAX_DAILY = 5;
 const COOLDOWN_MS = {
     weather: 25 * 60 * 1000,         // Reduced to 25 mins to allow 30-min cron trigger
-    class: 2 * 60 * 1000,            // 2 minutes between class alerts (fixed for tight windows)
+    class: 15 * 60 * 1000,           // 15 minutes between class alerts (safety margin for same instance)
     attendance: 12 * 60 * 60 * 1000, // 12 hours between attendance nudges
     engagement: 24 * 60 * 60 * 1000, // 24 hours between engagement notifications
     morning: 24 * 60 * 60 * 1000,    // 1 per day
     night: 24 * 60 * 60 * 1000,      // 1 per day
 };
 
-function canSendNotification(userId, category) {
+function canSendNotification(userId, category, subCategory = '') {
     const today = new Date().toISOString().split('T')[0];
     
     // Check daily limit (Weather category is EXEMPT from daily limits to allow 30-min updates)
@@ -190,7 +190,7 @@ function canSendNotification(userId, category) {
     }
     
     // Check cooldown
-    const cooldownKey = `${userId}:${category}`;
+    const cooldownKey = subCategory ? `${userId}:${category}:${subCategory}` : `${userId}:${category}`;
     const lastSent = cooldowns.get(cooldownKey);
     if (lastSent) {
         const cooldownMs = COOLDOWN_MS[category] || 60 * 60 * 1000;
@@ -200,7 +200,7 @@ function canSendNotification(userId, category) {
     return true;
 }
 
-function recordNotificationSent(userId, category) {
+function recordNotificationSent(userId, category, subCategory = '') {
     const today = new Date().toISOString().split('T')[0];
     const userDay = dailyCounts.get(userId) || { date: today, count: 0 };
     if (userDay.date !== today) {
@@ -209,13 +209,15 @@ function recordNotificationSent(userId, category) {
     }
     userDay.count++;
     dailyCounts.set(userId, userDay);
-    cooldowns.set(`${userId}:${category}`, Date.now());
+    
+    const cooldownKey = subCategory ? `${userId}:${category}:${subCategory}` : `${userId}:${category}`;
+    cooldowns.set(cooldownKey, Date.now());
 }
 
 // ─── CORE: Send notification (DB + Socket.IO + FCM) ─────────────────────────
 
-async function sendSmartNotification(userId, templateKey, vars = {}, category = 'engagement', type = 'info') {
-    if (!canSendNotification(userId, category)) return false;
+async function sendSmartNotification(userId, templateKey, vars = {}, category = 'engagement', type = 'info', subCategory = '') {
+    if (!canSendNotification(userId, category, subCategory)) return false;
     
     // 🧠 AI INTEGRATION: Check chronological suppression windows
     // 'class' alerts bypass quiet hours to guarantee students don't miss lectures,
@@ -284,7 +286,7 @@ async function sendSmartNotification(userId, templateKey, vars = {}, category = 
             console.log(`[FCM] Skipped because Firebase is not ready (apps: ${admin.apps.length})`);
         }
         
-        recordNotificationSent(userId, category);
+        recordNotificationSent(userId, category, subCategory);
         console.log(`[NOTIFY] → ${userId}: [${category}] ${copy.title}`);
         
         // 🧠 AI INTEGRATION: Log to Analytical Database Component
@@ -599,21 +601,15 @@ async function checkClassNotifications() {
             const diff = classStartMinutes - currentMinutes;
             const vars = { subject: row.subject, room: row.room || 'TBA', code: row.code };
             
-            // 10-minute warning
+            // UNIQUE TRACKING: subCategory includes subject + start_time
+            const subCategory = `${row.subject}_${row.start_time}`;
+
+            // Single Notification: 10-minute warning (diff 8-12 covers 2-min cron drift)
             if (diff >= 8 && diff <= 12) {
-                const didSend = await sendSmartNotification(row.user_id, 'class_10min', vars, 'class', 'info');
+                const didSend = await sendSmartNotification(row.user_id, 'class_10min', vars, 'class', 'info', subCategory);
                 if (didSend) sent++;
             }
-            // 5-minute warning  
-            else if (diff >= 3 && diff <= 7) {
-                const didSend = await sendSmartNotification(row.user_id, 'class_5min', vars, 'class', 'warning');
-                if (didSend) sent++;
-            }
-            // Class started (0-3 min ago)
-            else if (diff >= -3 && diff <= 0) {
-                const didSend = await sendSmartNotification(row.user_id, 'class_started', vars, 'class', 'warning');
-                if (didSend) sent++;
-            }
+            // Logic for 5-minute warning and Class started removed per user request to set only one notification.
         }
         
         if (sent > 0) console.log(`[CLASS NOTIFY] Sent ${sent} class notifications`);
