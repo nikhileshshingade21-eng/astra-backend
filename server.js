@@ -33,6 +33,7 @@ app.set('trust proxy', 1); // Trust first proxy (required by express-rate-limit 
 
 // ASTRA V7 PRODUCTION: Serve static landing page
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // SEC-021: Strict Payload limits to prevent OOM restarts
 app.use(express.json({ limit: '2mb' }));
