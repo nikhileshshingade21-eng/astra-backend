@@ -11,8 +11,8 @@ const router = express.Router();
 router.get('/items', authMiddleware, getItems);
 router.post('/items', authMiddleware, addItem);
 router.post('/upload', authMiddleware, uploadItemImage);
-router.put('/:id/sold', authMiddleware, markSold);
-router.delete('/:id', authMiddleware, deleteItem);
+router.put('/items/:id/sold', authMiddleware, markSold);
+router.delete('/items/:id', authMiddleware, deleteItem);
 
 // Reactions
 router.post('/items/react', authMiddleware, toggleReaction);
