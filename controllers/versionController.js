@@ -17,10 +17,10 @@
  */
 
 // ── UPDATE THESE WHEN RELEASING A NEW VERSION ────────────────
-const LATEST_VERSION_CODE = 12;                   // Increment this for each release
-const LATEST_VERSION_NAME = '3.3.8';              // Human-readable version
+const LATEST_VERSION_CODE = 13;                   // Increment this for each release
+const LATEST_VERSION_NAME = '3.3.9';              // Human-readable version
 const FORCE_UPDATE = true;                        // Set true for critical/security updates
-const APK_DOWNLOAD_URL = 'https://github.com/nikhileshshingade21-eng/astra-frontend/releases/download/v3.3.8/app-release.apk';
+const APK_DOWNLOAD_URL = 'https://github.com/nikhileshshingade21-eng/astra-frontend/releases/download/v3.3.9/app-release.apk';
 const CHANGELOG = `• Marketplace V3: Real-time P2P Chat, social Reactions, and Photo Capture.
 • Item Photos: Take high-quality photos directly in the app.
 • Stabilization: Optimized C++/CMake build artifacts and resolved the JSI path registry error.`;

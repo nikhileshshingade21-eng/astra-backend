@@ -31,7 +31,7 @@ const upload = multer({
         }
         cb(new Error('Only images (jpeg, jpg, png, webp) are allowed'));
     }
-}).single('image');
+}).array('images', 5);
 
 const uploadItemImage = (req, res) => {
     upload(req, res, function (err) {
@@ -41,13 +41,13 @@ const uploadItemImage = (req, res) => {
             return res.error(err.message, null, 400);
         }
 
-        if (!req.file) {
-            return res.error('No file selected', null, 400);
+        if (!req.files || req.files.length === 0) {
+            return res.error('No files selected', null, 400);
         }
 
-        // Return the relative URL for public access
-        const imageUrl = `/uploads/${req.file.filename}`;
-        res.success({ image_url: imageUrl }, 'Image uploaded successfully');
+        // Return the relative URLs for public access
+        const imageUrls = req.files.map(file => `/uploads/${file.filename}`);
+        res.success({ image_urls: imageUrls }, 'Images uploaded successfully');
     });
 };
 

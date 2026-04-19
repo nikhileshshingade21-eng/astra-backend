@@ -18,21 +18,33 @@ const getItems = async (req, res) => {
             ORDER BY m.created_at DESC
         `, [userId]);
 
-        const items = (result || []).map(row => ({
-            id: row.id,
-            title: row.title,
-            description: row.description,
-            price: row.price,
-            condition: row.condition,
-            status: row.status,
-            seller_name: row.seller_name,
-            created_at: row.created_at,
-            seller_id: row.seller_id,
-            image_url: row.image_url,
-            category: row.category,
-            reaction_count: parseInt(row.reaction_count || 0),
-            has_reacted: !!row.has_reacted
-        }));
+        const items = rows.map(row => {
+            let parsedImages = [];
+            try {
+                if (row.image_url && row.image_url.startsWith('[')) {
+                    parsedImages = JSON.parse(row.image_url);
+                } else if (row.image_url) {
+                    parsedImages = [row.image_url];
+                }
+            } catch (e) {}
+
+            return {
+                id: row.id,
+                title: row.title,
+                description: row.description,
+                price: parseFloat(row.price),
+                condition: row.condition,
+                status: row.status,
+                created_at: row.created_at,
+                seller_id: row.seller_id,
+                seller_name: row.seller_name,
+                image_urls: parsedImages, // Added for gallery support
+                image_url: parsedImages[0] || null, // Legacy fallback
+                category: row.category,
+                reaction_count: parseInt(row.reaction_count || 0),
+                has_reacted: !!row.has_reacted
+            };
+        });
 
         res.success({ items });
     } catch (err) {
@@ -46,7 +58,7 @@ const getItems = async (req, res) => {
  */
 const addItem = async (req, res) => {
     try {
-        const { title, description, price, condition, category, image_url } = req.body;
+        const { title, description, price, condition, category, image_urls, image_url } = req.body;
         if (!title || price === undefined) {
             return res.error('Title and price are required', null, 400);
         }
@@ -58,10 +70,18 @@ const addItem = async (req, res) => {
             return res.error('Price must be between 0 and 100000', null, 400);
         }
 
+        // Merge legacy image_url or new array image_urls
+        let finalImageStr = null;
+        if (image_urls && Array.isArray(image_urls) && image_urls.length > 0) {
+            finalImageStr = JSON.stringify(image_urls);
+        } else if (image_url) {
+            finalImageStr = image_url;
+        }
+
         await queryAll(
             `INSERT INTO marketplace_items (seller_id, title, description, price, condition, category, image_url)
              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [req.user.id, title, description || null, price, condition || 'good', category || 'Others', image_url || null]
+            [req.user.id, title, description || null, price, condition || 'good', category || 'Others', finalImageStr]
         );
 
         res.success(null, 'Item listed successfully');
