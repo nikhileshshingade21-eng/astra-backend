@@ -224,7 +224,7 @@ const uploadStudentData = async (req, res) => {
         const randomName = crypto.randomBytes(16).toString('hex');
         const ext = path.extname(originalName).replace(/[^a-zA-Z0-9.]/g, '');
         const fileName = `${randomName}${ext}.enc`;
-        const uploadsDir = path.resolve(__dirname, '../uploads');
+        const uploadsDir = fs.existsSync('/data') ? '/data/uploads' : path.resolve(__dirname, '../uploads');
         
         if (!fs.existsSync(uploadsDir)) {
             fs.mkdirSync(uploadsDir, { recursive: true });

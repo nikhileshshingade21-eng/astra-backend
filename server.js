@@ -31,9 +31,12 @@ const path = require('path');
 const app = express();
 app.set('trust proxy', 1); // Trust first proxy (required by express-rate-limit for Railway)
 
-// ASTRA V7 PRODUCTION: Serve static landing page
+// Persist uploads to Railway volume if available
+const UPLOAD_ROOT = fs.existsSync('/data') ? '/data/uploads' : path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOAD_ROOT)) fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
+
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(UPLOAD_ROOT));
 
 // SEC-021: Strict Payload limits to prevent OOM restarts
 app.use(express.json({ limit: '2mb' }));
