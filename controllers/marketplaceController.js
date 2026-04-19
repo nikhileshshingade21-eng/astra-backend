@@ -18,7 +18,7 @@ const getItems = async (req, res) => {
             ORDER BY m.created_at DESC
         `, [userId]);
 
-        const items = rows.map(row => {
+        const items = result.map(row => {
             let parsedImages = [];
             try {
                 if (row.image_url && row.image_url.startsWith('[')) {
