@@ -120,10 +120,23 @@ const deleteItem = async (req, res) => {
         if (!itemId || isNaN(parseInt(itemId))) {
             return res.error('Valid item ID required', null, 400);
         }
-        await queryAll(
-            `DELETE FROM marketplace_items WHERE id = $1 AND seller_id = $2`,
+        const result = await queryAll(
+            `DELETE FROM marketplace_items WHERE id = $1 AND seller_id = $2 RETURNING id`,
             [itemId, req.user.id]
         );
+
+        if (result && result.length > 0) {
+            // Manually cascade delete messages and conversations to keep DB clean
+            await queryAll(
+                `DELETE FROM marketplace_messages WHERE conversation_id IN (SELECT id FROM marketplace_conversations WHERE item_id = $1)`,
+                [itemId]
+            );
+            await queryAll(
+                `DELETE FROM marketplace_conversations WHERE item_id = $1`,
+                [itemId]
+            );
+        }
+
         res.success(null, 'Item permanently deleted');
     } catch (err) {
         console.error('Marketplace delete err:', err.message);
