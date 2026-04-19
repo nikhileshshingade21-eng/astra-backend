@@ -17,13 +17,13 @@
  */
 
 // ── UPDATE THESE WHEN RELEASING A NEW VERSION ────────────────
-const LATEST_VERSION_CODE = 7;                    // Increment this for each release
-const LATEST_VERSION_NAME = '3.3.0';              // Human-readable version
+const LATEST_VERSION_CODE = 9;                    // Increment this for each release
+const LATEST_VERSION_NAME = '3.3.5';              // Human-readable version
 const FORCE_UPDATE = true;                        // Set true for critical/security updates
-const APK_DOWNLOAD_URL = 'https://github.com/nikhileshshingade21-eng/astra-releases/releases/download/latest/app-release.apk';
-const CHANGELOG = `• Performance Fix: Resolved app freezes when using Scan QR and Bunk Calculator.
-• Smart Notifications: Consolidated alerts to a single 10-minute pre-class reminder.
-• Stability: Removed legacy layout conflicts and improved data safety across the UI.`;
+const APK_DOWNLOAD_URL = 'https://github.com/nikhileshshingade21-eng/astra-frontend/releases/download/v3.3.5/app-release.apk';
+const CHANGELOG = `• Marketplace V3: Real-time P2P Chat, social Reactions, and Photo Capture.
+• Item Photos: Take high-quality photos directly in the app.
+• Stabilization: Optimized C++/CMake build artifacts and resolved the JSI path registry error.`;
 
 const checkVersion = async (req, res) => {
     try {
