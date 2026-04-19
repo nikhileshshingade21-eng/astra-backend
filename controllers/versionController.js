@@ -17,12 +17,13 @@
  */
 
 // ── UPDATE THESE WHEN RELEASING A NEW VERSION ────────────────
-const LATEST_VERSION_CODE = 6;                    // Increment this for each release
-const LATEST_VERSION_NAME = '3.2.8';              // Human-readable version
+const LATEST_VERSION_CODE = 7;                    // Increment this for each release
+const LATEST_VERSION_NAME = '3.3.0';              // Human-readable version
 const FORCE_UPDATE = true;                        // Set true for critical/security updates
 const APK_DOWNLOAD_URL = 'https://github.com/nikhileshshingade21-eng/astra-releases/releases/download/latest/app-release.apk';
-const CHANGELOG = `• Finalized UI Fix: Resolved issue where multiple text elements were invisible in dark mode. All screens are now fully readable!
-• Enabled soft-white text colors across all labels.`;
+const CHANGELOG = `• Performance Fix: Resolved app freezes when using Scan QR and Bunk Calculator.
+• Smart Notifications: Consolidated alerts to a single 10-minute pre-class reminder.
+• Stability: Removed legacy layout conflicts and improved data safety across the UI.`;
 
 const checkVersion = async (req, res) => {
     try {
