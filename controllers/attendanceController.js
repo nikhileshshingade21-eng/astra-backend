@@ -230,9 +230,11 @@ const mark = async (req, res) => {
             const cls = await queryAll('SELECT start_time, end_time, name, day FROM classes WHERE id = $1', [class_id]);
             if (cls.length > 0) {
                 const { start_time: classStart, end_time: classEnd, name: className, day: classDay } = cls[0];
-                const now = new Date();
+                // Force evaluation in Asia/Kolkata (IST) timezone
+                const nowUTC = new Date();
+                const now = new Date(nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
                 
-                const currentDayName = now.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Kolkata' });
+                const currentDayName = now.toLocaleDateString('en-US', { weekday: 'long' });
 
                 if (classDay && classDay !== currentDayName && classDay !== 'General') {
                     return res.error('DAY PROTOCOL BREACH', {
@@ -252,7 +254,7 @@ const mark = async (req, res) => {
                 // Strictly enforce lock BEFORE class starts
                 if (now < protocolOpenTime) {
                     return res.error('TIME PROTOCOL BREACH', {
-                        message: `Attendance marking for ${className} is locked. You can only mark attendance after the class officially starts at ${classStart}.`
+                        message: `Attendance marking for ${className} is locked. You can only mark attendance after the class officially starts at ${classStart.substring(0,5)}.`
                     }, 403);
                 }
 
