@@ -224,6 +224,24 @@ async function start() {
             console.error('[WARN] Schema validation failed:', err.message);
         }
 
+        // ─── V4: Schema Migration (additive — safe to run every boot) ───
+        try {
+            const { migrateV4Schema } = require('./scripts/migrate_v4_schema');
+            await migrateV4Schema();
+            console.log('[ASTRA V4] Schema migration complete.');
+        } catch (err) {
+            console.error('[WARN] V4 schema migration failed:', err.message);
+        }
+
+        // ─── V4: Initialize Event Engine ────────────────────────────────
+        try {
+            const { astraEvents } = require('./services/astraEvents');
+            astraEvents.initialize();
+            console.log('[ASTRA V4] ⚡ Event Engine initialized.');
+        } catch (err) {
+            console.error('[WARN] V4 Event Engine init failed:', err.message);
+        }
+
         try {
             await scheduleV3Jobs();
         } catch (err) {
@@ -245,8 +263,16 @@ async function start() {
         } catch (err) {
             console.error('[WARN] Cache flush failed:', err.message);
         }
+
+        // ─── V4: Report debounce service status ────────────────────────
+        try {
+            const { getStats } = require('./services/debounceService');
+            console.log('[ASTRA V4] Debounce service online:', JSON.stringify(getStats()));
+        } catch (err) {
+            // Non-critical
+        }
             
-        console.log('[READY] ASTRA Services Synced.');
+        console.log('[READY] ASTRA V4 Services Synced.');
     });
 }
 

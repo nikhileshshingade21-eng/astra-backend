@@ -1,12 +1,14 @@
 /**
- * ASTRA SMART NOTIFICATION ENGINE v1.0
- * ======================================
+ * ASTRA SMART NOTIFICATION ENGINE v2.0 (V4 Architecture)
+ * ========================================================
  * Production-grade notification system with:
  * - Weather alerts (rain, extreme heat, storms)
  * - Class reminders (10min, 5min, started)
  * - Attendance nudges (low attendance, missed classes)
  * - Engagement triggers (streaks, inactivity, achievements)
  * - Personalized Gen-Z copy with FOMO/urgency/humor
+ * - V4: Persona-aware sentient notifications
+ * - V4: Debounce integration for rapid reconnect protection
  * 
  * Architecture: Rule Engine → Copy Generator → Delivery Pipeline (DB + Socket.IO + FCM)
  * Anti-spam: Max 5 notifications/day, dedup, cooldown windows
@@ -17,6 +19,7 @@ const socketService = require('./socketService');
 const { getLocalDate } = require('../utils/dateUtils');
 const admin = require('./firebaseService');
 const AIEngine = require('./aiNotificationEngine');
+const { shouldProcess: debounceCheck } = require('./debounceService');
 
 // CRITICAL FIX: firebaseReady must be a FUNCTION, not a frozen constant.
 // The old code evaluated admin.apps.length once at module-load time.
@@ -947,6 +950,100 @@ async function sendGoodNightDigest() {
     }
 }
 
+// ─── V4: PERSONA-AWARE OVERDUE HANDLER ─────────────────────────────────────
+
+/**
+ * Sends persona-aware overdue notifications for users flagged by the V4 sweeper.
+ * Uses sentient copy from personaEngine for personality-matched messaging.
+ *
+ * @param {Array<{id, risk_persona, expected_return, risk_score}>} overdueUsers
+ * @returns {number} count of notifications sent
+ */
+async function sendOverdueNotifications(overdueUsers) {
+    if (!overdueUsers || overdueUsers.length === 0) return 0;
+
+    let sent = 0;
+    let personaEngine;
+    try {
+        personaEngine = require('./personaEngine');
+    } catch (e) {
+        console.warn('[V4 OVERDUE] PersonaEngine not available, using generic copy');
+    }
+
+    for (const user of overdueUsers) {
+        try {
+            // Skip if we just sent them a notification recently
+            if (!canSendNotification(user.id, 'engagement', 'overdue')) continue;
+
+            let copy;
+            if (personaEngine) {
+                copy = personaEngine.getSentientCopy('overdue_return', user.risk_persona || 'neutral', {
+                    expected: user.expected_return
+                });
+            }
+
+            // Fallback generic copy if persona engine unavailable
+            if (!copy) {
+                copy = {
+                    title: '👋 We noticed you\'re away',
+                    body: 'Your expected return time has passed. Everything okay?'
+                };
+            }
+
+            const didSend = await sendSmartNotification(
+                user.id, null, {}, 'engagement', 'info', 'overdue'
+            );
+
+            // If the generic send path doesn't have the copy, send directly
+            if (!didSend) {
+                await queryAll(
+                    `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4)`,
+                    [user.id, copy.title, copy.body, 'info']
+                );
+
+                socketService.emitToUser(user.id, 'LIVE_NOTIFICATION', {
+                    title: copy.title, body: copy.body, type: 'overdue_alert',
+                    persona: user.risk_persona, timestamp: new Date().toISOString()
+                });
+
+                // FCM push
+                if (isFirebaseReady()) {
+                    try {
+                        const userQuery = await queryAll('SELECT fcm_token FROM users WHERE id = $1', [user.id]);
+                        if (userQuery.length > 0 && userQuery[0].fcm_token) {
+                            await admin.messaging().send({
+                                notification: { title: copy.title, body: copy.body },
+                                data: { type: 'overdue_alert', persona: user.risk_persona || 'neutral' },
+                                token: userQuery[0].fcm_token,
+                                android: { priority: 'high', notification: { sound: 'default', channelId: 'astra-class-reminders' } }
+                            });
+                        }
+                    } catch (fcmErr) {
+                        if (fcmErr.code === 'messaging/registration-token-not-registered' || fcmErr.message?.includes('not found')) {
+                            await queryAll('UPDATE users SET fcm_token = NULL WHERE id = $1', [user.id]);
+                        }
+                    }
+                }
+
+                recordNotificationSent(user.id, 'engagement', 'overdue');
+            }
+
+            // Clear the overdue state
+            await queryAll(
+                'UPDATE users SET expected_return = NULL WHERE id = $1',
+                [user.id]
+            );
+
+            sent++;
+        } catch (err) {
+            console.error(`[V4 OVERDUE] Failed for user ${user.id}:`, err.message);
+        }
+    }
+
+    if (sent > 0) console.log(`[V4 OVERDUE] Sent ${sent}/${overdueUsers.length} persona-aware notifications`);
+    return sent;
+}
+
 // ─── EXPORTS ────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -958,6 +1055,7 @@ module.exports = {
     sendGoodNightDigest,
     checkStreaks,
     checkInactiveUsers,
+    sendOverdueNotifications,
     pickCopy,
     COPY,
 };

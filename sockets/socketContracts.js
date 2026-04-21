@@ -2,6 +2,8 @@
  * Socket.IO Contract Registry
  * Strict schemas for real-time emissions to enforce synchronization
  * between React Native and Node backend.
+ *
+ * V4: Added app lifecycle events + overdue alerts for predictive architecture.
  */
 
 const SOCKET_EVENTS = {
@@ -10,13 +12,18 @@ const SOCKET_EVENTS = {
     JOIN_CLASS: 'join_class',
     LEAVE_CLASS: 'leave_class',
 
-    // Emits
+    // Emits (Server → Client)
     LIVE_NOTIFICATION: 'LIVE_NOTIFICATION',
     ATTENDANCE_MARKED: 'ATTENDANCE_MARKED',
     LOCATION_UPDATE: 'LOCATION_UPDATE',
+    OVERDUE_ALERT: 'OVERDUE_ALERT',         // V4: Persona-aware overdue nudge
+    PERSONA_UPDATE: 'PERSONA_UPDATE',       // V4: Persona reclassification result
 
-    // Listens
-    LIVE_LOCATION_PING: 'LIVE_LOCATION_PING'
+    // Listens (Client → Server)
+    LIVE_LOCATION_PING: 'LIVE_LOCATION_PING',
+    APP_BACKGROUNDED: 'APP_BACKGROUNDED',   // V4: App sent to background
+    APP_RESUMED: 'APP_RESUMED',             // V4: App brought to foreground
+    ACTIVITY_PING: 'ACTIVITY_PING',         // V4: Lightweight heartbeat
 };
 
 const formatSocketPayload = (event, payload) => {
@@ -54,6 +61,30 @@ const formatSocketPayload = (event, payload) => {
                     lat: payload.lat,
                     lng: payload.lng,
                     status: payload.status || 'online'
+                }
+            };
+
+        case SOCKET_EVENTS.OVERDUE_ALERT:
+            // V4: payload = { title, body, persona, risk_score }
+            return {
+                ...base,
+                data: {
+                    title: payload.title,
+                    body: payload.body,
+                    persona: payload.persona || 'neutral',
+                    risk_score: payload.risk_score || 50,
+                    type: 'overdue_alert'
+                }
+            };
+
+        case SOCKET_EVENTS.PERSONA_UPDATE:
+            // V4: payload = { persona, risk_score, grace_period_minutes }
+            return {
+                ...base,
+                data: {
+                    persona: payload.persona,
+                    risk_score: payload.risk_score,
+                    grace_period_minutes: payload.grace_period_minutes
                 }
             };
             

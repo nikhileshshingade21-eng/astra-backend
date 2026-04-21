@@ -6,6 +6,15 @@ const { encrypt, decrypt } = require('../utils/encryption');
 const { sendResetEmail } = require('../services/emailService');
 const crypto = require('crypto');
 
+// V4: Lazy-load event engine to avoid circular dependency at module-load time
+let _astraEventsCache = null;
+function getAstraEvents() {
+    if (!_astraEventsCache) {
+        try { _astraEventsCache = require('../services/astraEvents'); } catch (e) { /* not ready yet */ }
+    }
+    return _astraEventsCache;
+}
+
 const verify = async (req, res) => {
     try {
         const { roll_number } = req.body;
@@ -137,6 +146,12 @@ const register = async (req, res) => {
             token,
             user: { id: userId, roll_number: cleanRoll, name, email, phone, programme, section, role: userRole, biometric_enrolled: !!biometric_enrolled, face_enrolled: !!face_enrolled }
         }, 'Registration successful');
+
+        // V4: Fire registration event for persona initialization (async, non-blocking)
+        const ae = getAstraEvents();
+        if (ae) {
+            ae.astraEvents.emit(ae.ASTRA_EVENTS.USER_REGISTERED, { userId });
+        }
     } catch (err) {
         console.error('Register error:', err.message);
         res.error('Registration failed. Please try again.', null, 500);
@@ -234,6 +249,12 @@ const login = async (req, res) => {
 
         const { password_hash, ...safeUser } = user;
         res.success({ token, user: safeUser }, 'Login successful');
+
+        // V4: Fire login event for prediction + persona reclassification (async, non-blocking)
+        const ae = getAstraEvents();
+        if (ae) {
+            ae.astraEvents.emit(ae.ASTRA_EVENTS.USER_LOGIN, { userId: user.id });
+        }
     } catch (err) {
         console.error('Login error:', err.message);
         res.error('Login failed. Please try again.', null, 500);
