@@ -165,7 +165,7 @@ app.get('/api/health', (req, res) => {
     res.success({ 
         status: 'ok', 
         server: 'ASTRA Backend', 
-        version: '1.0.6', 
+        version: '4.0.0', 
         env: process.env.NODE_ENV || 'development',
         time: new Date().toISOString(),
         redis_connected: isRedisConnected(),
